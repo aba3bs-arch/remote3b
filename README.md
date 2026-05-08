@@ -19,6 +19,24 @@ client/
 
 ## Instalacion
 
+### Windows rapido
+
+En Cursor, abre la terminal con **Terminal > New Terminal** y pega:
+
+```powershell
+.\scripts\start_am_connect_windows.bat
+```
+
+Tambien puedes abrir el archivo `scripts/start_am_connect_windows.bat` con doble click desde el Explorador de Windows. El script crea el entorno virtual, instala dependencias y arranca el servidor.
+
+Cuando termine de iniciar, abre:
+
+```text
+http://localhost:8000
+```
+
+### Linux/macOS
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate
