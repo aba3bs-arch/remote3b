@@ -31,6 +31,19 @@
     .tabs { display: flex; gap: 10px; margin-bottom: 14px; }
     .tabs button { width: auto; margin: 0; padding: 8px 12px; }
     img.screenshot { width: 100%; border-radius: 12px; border: 1px solid #334155; background: #020617; }
+    .live-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    .live-toolbar button { width: auto; margin-top: 0; }
+    .live-screen {
+      width: 100%;
+      min-height: 360px;
+      object-fit: contain;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      background: #020617;
+      cursor: crosshair;
+      outline: none;
+    }
+    .live-screen:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, .25); }
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: 8px; border-bottom: 1px solid #334155; text-align: left; font-size: 14px; }
     code { color: #93c5fd; }
@@ -87,8 +100,14 @@
         </div>
 
         <div id="tool-screen" class="hidden">
-          <button onclick="takeScreenshot()">Tomar captura</button>
-          <p class="muted">La captura requiere que el agente tenga permiso del sistema operativo.</p>
+          <div class="live-toolbar">
+            <button onclick="startLiveControl()">Iniciar en vivo</button>
+            <button class="secondary" onclick="stopLiveControl()">Detener</button>
+            <button class="secondary" onclick="takeScreenshot()">Tomar captura</button>
+          </div>
+          <p id="live-status" class="muted">Haz click en la pantalla en vivo para enfocar teclado y mouse.</p>
+          <img id="live-screen" class="live-screen hidden" tabindex="0" alt="Pantalla remota en vivo">
+          <p class="muted">La vista en vivo y el control requieren permiso del sistema operativo en la PC remota.</p>
           <img id="screenshot" class="screenshot hidden" alt="Captura remota">
         </div>
 
@@ -117,6 +136,9 @@
     let username = localStorage.getItem("amConnectUsername");
     let selectedDevice = null;
     let refreshTimer = null;
+    let controlSocket = null;
+    let liveFrameSize = { width: 1, height: 1 };
+    let lastMouseMoveAt = 0;
 
     function authHeaders() {
       return { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
@@ -197,6 +219,7 @@
     }
 
     function selectDevice(device) {
+      if (!selectedDevice || selectedDevice.id !== device.id) stopLiveControl();
       selectedDevice = device;
       document.getElementById("selected-title").textContent = device.name;
       document.getElementById("selected-meta").textContent = `${device.online ? "Online" : "Offline"} - ${device.platform || "sin plataforma"} - ${device.hostname || device.id}`;
@@ -234,6 +257,104 @@
       } catch (error) {
         alert(error.message);
       }
+    }
+
+    function startLiveControl() {
+      try {
+        const device = requireDevice();
+        stopLiveControl();
+        const scheme = location.protocol === "https:" ? "wss" : "ws";
+        const url = `${scheme}://${location.host}/ws/control/${device.id}?token=${encodeURIComponent(token)}`;
+        controlSocket = new WebSocket(url);
+        setLiveStatus("Conectando vista en vivo...");
+
+        controlSocket.onopen = () => {
+          setLiveStatus("Vista en vivo conectada. Click sobre la pantalla para controlar.");
+          sendControlMessage({ type: "start_stream", fps: 8, quality: 65 });
+        };
+        controlSocket.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === "screen_frame" && message.status === "ok") {
+            liveFrameSize = { width: message.width, height: message.height };
+            const image = document.getElementById("live-screen");
+            image.src = `data:${message.mime_type};base64,${message.image_base64}`;
+            image.classList.remove("hidden");
+          } else if (message.type === "remote_control_status") {
+            setLiveStatus(message.message || `Estado remoto: ${message.status}`);
+          } else if (message.type === "error") {
+            setLiveStatus(message.message || "Error de control remoto.");
+          }
+        };
+        controlSocket.onclose = () => {
+          controlSocket = null;
+          setLiveStatus("Vista en vivo desconectada.");
+        };
+        controlSocket.onerror = () => setLiveStatus("Error en la conexion de vista en vivo.");
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function stopLiveControl(closeSocket = true) {
+      if (controlSocket) {
+        sendControlMessage({ type: "stop_stream" });
+        if (closeSocket) controlSocket.close();
+        controlSocket = null;
+      }
+    }
+
+    function setLiveStatus(text) {
+      document.getElementById("live-status").textContent = text;
+    }
+
+    function sendControlMessage(message) {
+      if (!controlSocket || controlSocket.readyState !== WebSocket.OPEN) return;
+      controlSocket.send(JSON.stringify(message));
+    }
+
+    function imagePoint(event) {
+      const image = document.getElementById("live-screen");
+      const rect = image.getBoundingClientRect();
+      const renderedRatio = rect.width / rect.height;
+      const frameRatio = liveFrameSize.width / liveFrameSize.height;
+      let contentWidth = rect.width;
+      let contentHeight = rect.height;
+      let offsetX = 0;
+      let offsetY = 0;
+      if (renderedRatio > frameRatio) {
+        contentWidth = rect.height * frameRatio;
+        offsetX = (rect.width - contentWidth) / 2;
+      } else {
+        contentHeight = rect.width / frameRatio;
+        offsetY = (rect.height - contentHeight) / 2;
+      }
+      const x = Math.max(0, Math.min(event.clientX - rect.left - offsetX, contentWidth));
+      const y = Math.max(0, Math.min(event.clientY - rect.top - offsetY, contentHeight));
+      return {
+        x: Math.round((x / contentWidth) * liveFrameSize.width),
+        y: Math.round((y / contentHeight) * liveFrameSize.height),
+        frame_width: liveFrameSize.width,
+        frame_height: liveFrameSize.height
+      };
+    }
+
+    function sendMouse(action, event, extra = {}) {
+      if (!controlSocket || controlSocket.readyState !== WebSocket.OPEN) return;
+      const point = imagePoint(event);
+      sendControlMessage({ type: "mouse_event", action, ...point, ...extra });
+    }
+
+    function keyboardPayload(event) {
+      const modifiers = [];
+      if (event.ctrlKey) modifiers.push("ctrl");
+      if (event.altKey) modifiers.push("alt");
+      if (event.shiftKey && event.key.length !== 1) modifiers.push("shift");
+      if (event.metaKey) modifiers.push("meta");
+
+      if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        return { type: "keyboard_event", action: "text", text: event.key };
+      }
+      return { type: "keyboard_event", action: "key_press", key: event.key, modifiers };
     }
 
     async function listFiles() {
@@ -305,6 +426,33 @@
     }
 
     if (token) setSession(token, username || "usuario");
+
+    const liveScreen = document.getElementById("live-screen");
+    liveScreen.addEventListener("click", event => {
+      liveScreen.focus();
+      sendMouse("click", event, { button: "left" });
+    });
+    liveScreen.addEventListener("dblclick", event => sendMouse("double_click", event, { button: "left" }));
+    liveScreen.addEventListener("contextmenu", event => {
+      event.preventDefault();
+      liveScreen.focus();
+      sendMouse("click", event, { button: "right" });
+    });
+    liveScreen.addEventListener("mousemove", event => {
+      const now = Date.now();
+      if (now - lastMouseMoveAt < 80) return;
+      lastMouseMoveAt = now;
+      sendMouse("move", event);
+    });
+    liveScreen.addEventListener("wheel", event => {
+      event.preventDefault();
+      sendMouse("scroll", event, { delta: event.deltaY > 0 ? -5 : 5 });
+    });
+    liveScreen.addEventListener("keydown", event => {
+      if (!controlSocket || controlSocket.readyState !== WebSocket.OPEN) return;
+      event.preventDefault();
+      sendControlMessage(keyboardPayload(event));
+    });
   </script>
 </body>
 </html>

@@ -8,6 +8,7 @@ aiohttp
 psutil
 mss
 Pillow
+pyautogui
 httpx
 pytest
 pytest-asyncio

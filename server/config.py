@@ -59,6 +59,7 @@ class Settings:
     enable_command_execution: bool = _bool_env("ENABLE_COMMAND_EXECUTION", True)
     enable_file_transfer: bool = _bool_env("ENABLE_FILE_TRANSFER", True)
     enable_screenshots: bool = _bool_env("ENABLE_SCREENSHOTS", True)
+    enable_remote_control: bool = _bool_env("ENABLE_REMOTE_CONTROL", True)
     request_timeout_seconds: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "45"))
     max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 

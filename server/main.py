@@ -105,13 +105,17 @@ def public_device(device: dict, online: bool) -> dict:
 
 def current_user(authorization: Annotated[str | None, Header()] = None) -> dict:
     try:
-        payload = decode_access_token(extract_bearer_token(authorization))
+        user = user_from_access_token(extract_bearer_token(authorization))
     except SecurityError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    return user
 
+
+def user_from_access_token(token: str) -> dict:
+    payload = decode_access_token(token)
     user = store.get_user_by_id(payload["sub"])
     if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado.")
+        raise SecurityError("Usuario no encontrado.")
     return user
 
 
@@ -321,14 +325,70 @@ async def agent_socket(websocket: WebSocket, device_id: str, token: str):
             store.touch_device(device_id)
             if message.get("type") == "system_info":
                 store.update_device_metadata(device_id, message)
+            elif message.get("type") in {"screen_frame", "remote_control_status"}:
+                await connections.broadcast_to_controllers(device_id, message)
             else:
-                connections.resolve_agent_message(message)
+                handled = connections.resolve_agent_message(message)
+                if not handled:
+                    await connections.broadcast_to_controllers(device_id, message)
     except WebSocketDisconnect:
         logger.info("Agent disconnected: %s", device_id)
     except Exception:
         logger.exception("Agent socket failed for %s", device_id)
     finally:
         await connections.disconnect_device(device_id)
+
+
+@app.websocket("/ws/control/{device_id}")
+async def control_socket(websocket: WebSocket, device_id: str, token: str):
+    if not settings.enable_remote_control:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    try:
+        user = user_from_access_token(token)
+        get_owned_device(device_id, user)
+    except (SecurityError, HTTPException):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    if not connections.is_online(device_id):
+        await websocket.close(code=4004, reason="Device offline")
+        return
+
+    await connections.connect_controller(device_id, websocket)
+    store.log_event("device.remote_control.start", user_id=user["id"], device_id=device_id)
+    logger.info("Controller connected for %s by %s", device_id, user["username"])
+    try:
+        while True:
+            message = await websocket.receive_json()
+            message_type = message.get("type")
+            if message_type == "start_stream":
+                await connections.send_event(
+                    device_id,
+                    {
+                        "type": "start_stream",
+                        "fps": int(message.get("fps", 8)),
+                        "quality": int(message.get("quality", 65)),
+                    },
+                )
+            elif message_type == "stop_stream":
+                await connections.send_event(device_id, {"type": "stop_stream"})
+            elif message_type in {"mouse_event", "keyboard_event"}:
+                await connections.send_event(device_id, message)
+            else:
+                await websocket.send_json({"type": "error", "message": "Mensaje de control desconocido."})
+    except WebSocketDisconnect:
+        logger.info("Controller disconnected for %s", device_id)
+    except Exception:
+        logger.exception("Controller socket failed for %s", device_id)
+    finally:
+        await connections.disconnect_controller(device_id, websocket)
+        if connections.controller_count(device_id) == 0 and connections.is_online(device_id):
+            try:
+                await connections.send_event(device_id, {"type": "stop_stream"})
+            except DeviceOfflineError:
+                pass
 
 
 if __name__ == "__main__":

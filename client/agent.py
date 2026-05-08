@@ -16,7 +16,9 @@ import platform
 import ssl
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,7 @@ MAX_DOWNLOAD_BYTES = int(os.getenv("AM_CONNECT_MAX_DOWNLOAD_BYTES", str(25 * 102
 ALLOW_COMMANDS = os.getenv("AM_CONNECT_ALLOW_COMMANDS", "true").strip().lower() in {"1", "true", "yes", "on"}
 ALLOW_FILE_TRANSFER = os.getenv("AM_CONNECT_ALLOW_FILE_TRANSFER", "true").strip().lower() in {"1", "true", "yes", "on"}
 ALLOW_SCREENSHOTS = os.getenv("AM_CONNECT_ALLOW_SCREENSHOTS", "true").strip().lower() in {"1", "true", "yes", "on"}
+ALLOW_REMOTE_CONTROL = os.getenv("AM_CONNECT_ALLOW_REMOTE_CONTROL", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("am-connect-agent")
@@ -47,6 +50,10 @@ class AMConnectAgent:
         self.device_id = device_id
         self.device_secret = device_secret
         self.verify_ssl = verify_ssl
+        self.send_lock = asyncio.Lock()
+        self.stream_task: asyncio.Task | None = None
+        self.stream_stop = asyncio.Event()
+        self.current_monitor: dict[str, int] | None = None
 
     def websocket_url(self) -> str:
         scheme_url = self.server_url
@@ -86,12 +93,18 @@ class AMConnectAgent:
             except Exception as exc:
                 logger.warning("Disconnected: %s", exc)
 
+            await self._stop_stream()
             logger.info("Reconnecting in %s seconds...", backoff)
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30)
 
+    async def _send_json(self, websocket: aiohttp.ClientWebSocketResponse, payload: dict[str, Any]) -> None:
+        async with self.send_lock:
+            await websocket.send_json(payload)
+
     async def _send_system_info(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
-        await websocket.send_json(
+        await self._send_json(
+            websocket,
             {
                 "type": "system_info",
                 "device_id": self.device_id,
@@ -119,20 +132,29 @@ class AMConnectAgent:
                 response = self._file_download(message)
             elif message_type == "file_upload":
                 response = self._file_upload(message)
+            elif message_type == "start_stream":
+                await self._start_stream(websocket, message)
+                return
+            elif message_type == "stop_stream":
+                await self._stop_stream()
+                await self._send_status(websocket, "stream_stopped")
+                return
+            elif message_type == "mouse_event":
+                response = self._mouse_event(message)
+            elif message_type == "keyboard_event":
+                response = self._keyboard_event(message)
             else:
                 response = {"status": "error", "error": f"Unknown message type: {message_type}"}
         except Exception as exc:
             logger.exception("Failed to handle request %s", request_id)
             response = {"status": "error", "error": str(exc)}
 
-        await websocket.send_json(
-            {
-                "request_id": request_id,
-                "type": f"{message_type}_response",
-                "timestamp": now(),
-                **response,
-            }
-        )
+        response_payload = {"type": f"{message_type}_response", "timestamp": now(), **response}
+        if request_id:
+            response_payload["request_id"] = request_id
+        else:
+            response_payload["type"] = "remote_control_status"
+        await self._send_json(websocket, response_payload)
 
     async def _command(self, message: dict[str, Any]) -> dict[str, Any]:
         if not ALLOW_COMMANDS:
@@ -177,8 +199,6 @@ class AMConnectAgent:
             capture = screen.grab(monitor)
 
         image = Image.frombytes("RGB", capture.size, capture.rgb)
-        from io import BytesIO
-
         buffer = BytesIO()
         image.save(buffer, format="JPEG", quality=quality)
         return {
@@ -245,6 +265,173 @@ class AMConnectAgent:
         content = base64.b64decode(message.get("content_base64", "").encode("ascii"), validate=True)
         path.write_bytes(content)
         return {"status": "ok", "path": str(path), "size": len(content)}
+
+    async def _start_stream(self, websocket: aiohttp.ClientWebSocketResponse, message: dict[str, Any]) -> None:
+        if not ALLOW_SCREENSHOTS:
+            await self._send_status(websocket, "error", "Screenshots are disabled on this agent.")
+            return
+
+        fps = max(1, min(int(message.get("fps", 8)), 20))
+        quality = max(25, min(int(message.get("quality", 65)), 90))
+        if self.stream_task and not self.stream_task.done():
+            await self._send_status(websocket, "stream_already_running")
+            return
+
+        self.stream_stop.clear()
+        self.stream_task = asyncio.create_task(self._stream_screen(websocket, fps=fps, quality=quality))
+        await self._send_status(websocket, "stream_started")
+
+    async def _stop_stream(self) -> None:
+        self.stream_stop.set()
+        if self.stream_task and not self.stream_task.done():
+            self.stream_task.cancel()
+            try:
+                await self.stream_task
+            except asyncio.CancelledError:
+                pass
+        self.stream_task = None
+
+    async def _stream_screen(self, websocket: aiohttp.ClientWebSocketResponse, fps: int, quality: int) -> None:
+        try:
+            import mss
+            from PIL import Image
+        except ImportError as exc:
+            await self._send_status(websocket, "error", f"Streaming dependencies are missing: {exc}")
+            return
+
+        frame_delay = 1 / fps
+        try:
+            with mss.mss() as screen:
+                monitor = screen.monitors[1] if len(screen.monitors) > 1 else screen.monitors[0]
+                self.current_monitor = {
+                    "left": int(monitor.get("left", 0)),
+                    "top": int(monitor.get("top", 0)),
+                    "width": int(monitor["width"]),
+                    "height": int(monitor["height"]),
+                }
+                while not self.stream_stop.is_set():
+                    started = time.monotonic()
+                    capture = screen.grab(monitor)
+                    image = Image.frombytes("RGB", capture.size, capture.rgb)
+                    buffer = BytesIO()
+                    image.save(buffer, format="JPEG", quality=quality, optimize=True)
+                    await self._send_json(
+                        websocket,
+                        {
+                            "type": "screen_frame",
+                            "status": "ok",
+                            "image_base64": base64.b64encode(buffer.getvalue()).decode("ascii"),
+                            "mime_type": "image/jpeg",
+                            "width": capture.width,
+                            "height": capture.height,
+                            "timestamp": now(),
+                        },
+                    )
+                    elapsed = time.monotonic() - started
+                    await asyncio.sleep(max(0.01, frame_delay - elapsed))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Screen stream failed")
+            await self._send_status(websocket, "error", str(exc))
+
+    async def _send_status(
+        self,
+        websocket: aiohttp.ClientWebSocketResponse,
+        status: str,
+        message: str | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"type": "remote_control_status", "status": status, "timestamp": now()}
+        if message:
+            payload["message"] = message
+        await self._send_json(websocket, payload)
+
+    def _mouse_event(self, message: dict[str, Any]) -> dict[str, Any]:
+        if not ALLOW_REMOTE_CONTROL:
+            return {"status": "error", "error": "Remote control is disabled on this agent."}
+
+        try:
+            import pyautogui
+        except ImportError as exc:
+            return {"status": "error", "error": f"Mouse control dependency is missing: {exc}"}
+
+        pyautogui.FAILSAFE = True
+        action = message.get("action", "move")
+        x, y = self._screen_coordinates(message)
+        button = message.get("button", "left")
+
+        if action == "move":
+            pyautogui.moveTo(x, y, duration=0)
+        elif action == "click":
+            pyautogui.click(x=x, y=y, button=button)
+        elif action == "double_click":
+            pyautogui.doubleClick(x=x, y=y, button=button)
+        elif action == "scroll":
+            pyautogui.scroll(int(message.get("delta", 0)), x=x, y=y)
+        else:
+            return {"status": "error", "error": f"Unknown mouse action: {action}"}
+
+        return {"status": "ok", "action": action}
+
+    def _keyboard_event(self, message: dict[str, Any]) -> dict[str, Any]:
+        if not ALLOW_REMOTE_CONTROL:
+            return {"status": "error", "error": "Remote control is disabled on this agent."}
+
+        try:
+            import pyautogui
+        except ImportError as exc:
+            return {"status": "error", "error": f"Keyboard control dependency is missing: {exc}"}
+
+        pyautogui.FAILSAFE = True
+        action = message.get("action", "key_press")
+        if action == "text":
+            text = str(message.get("text", ""))
+            if text:
+                pyautogui.write(text, interval=0)
+            return {"status": "ok", "action": action}
+
+        key = self._normalize_key(str(message.get("key", "")))
+        if not key:
+            return {"status": "error", "error": "Missing key."}
+
+        modifiers = [self._normalize_key(item) for item in message.get("modifiers", [])]
+        modifiers = [item for item in modifiers if item]
+        if modifiers:
+            pyautogui.hotkey(*modifiers, key)
+        else:
+            pyautogui.press(key)
+        return {"status": "ok", "action": action, "key": key}
+
+    def _screen_coordinates(self, message: dict[str, Any]) -> tuple[int, int]:
+        monitor = self.current_monitor or {"left": 0, "top": 0, "width": 1, "height": 1}
+        frame_width = max(float(message.get("frame_width") or monitor["width"]), 1.0)
+        frame_height = max(float(message.get("frame_height") or monitor["height"]), 1.0)
+        x_ratio = max(0.0, min(float(message.get("x", 0)) / frame_width, 1.0))
+        y_ratio = max(0.0, min(float(message.get("y", 0)) / frame_height, 1.0))
+        x = int(monitor["left"] + x_ratio * monitor["width"])
+        y = int(monitor["top"] + y_ratio * monitor["height"])
+        return x, y
+
+    @staticmethod
+    def _normalize_key(key: str) -> str:
+        mapping = {
+            " ": "space",
+            "arrowup": "up",
+            "arrowdown": "down",
+            "arrowleft": "left",
+            "arrowright": "right",
+            "escape": "esc",
+            "control": "ctrl",
+            "meta": "win",
+            "delete": "delete",
+            "backspace": "backspace",
+            "enter": "enter",
+            "tab": "tab",
+            "shift": "shift",
+            "alt": "alt",
+        }
+        lowered = key.strip().lower()
+        return mapping.get(lowered, lowered)
 
 
 def require_env(name: str) -> str:

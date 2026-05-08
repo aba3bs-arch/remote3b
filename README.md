@@ -1,6 +1,6 @@
 # AM-Connect
 
-AM-Connect es una base de aplicacion para soporte remoto autorizado. Incluye login con usuario y contrasena, panel web para ver equipos en linea, enrolamiento explicito de agentes, ejecucion de comandos, capturas de pantalla y transferencia de archivos.
+AM-Connect es una base de aplicacion para soporte remoto autorizado. Incluye login con usuario y contrasena, panel web para ver equipos en linea, enrolamiento explicito de agentes, pantalla en vivo, control de mouse/teclado, ejecucion de comandos, capturas de pantalla y transferencia de archivos.
 
 > Usa AM-Connect solo en PCs propias o administradas con consentimiento explicito. El agente es visible por consola, no se instala como persistencia y no intenta ocultarse.
 
@@ -77,12 +77,24 @@ python client/agent.py
 
 Cuando el agente este conectado, el equipo aparecera en linea en el panel.
 
+## Usar pantalla en vivo y control remoto
+
+1. Selecciona un equipo online en el panel.
+2. Abre la pestana **Pantalla**.
+3. Pulsa **Iniciar en vivo**.
+4. Haz click sobre la imagen para enfocar el control.
+5. Mueve el mouse, haz click, usa la rueda o escribe con el teclado.
+
+La PC remota debe tener el agente abierto y visible. En algunos sistemas operativos la captura o el control de teclado/mouse requiere permisos de accesibilidad, grabacion de pantalla o control remoto.
+
 ## Funciones actuales
 
 - Autenticacion JWT con usuario y contrasena.
 - Creacion del primer administrador y bloqueo de registros posteriores por defecto.
 - SQLite persistente para usuarios, equipos y auditoria basica.
 - Equipos en linea mediante WebSocket autenticado con secreto de dispositivo.
+- Pantalla en vivo por WebSocket con frames JPEG.
+- Control de mouse y teclado desde el panel sobre la pantalla en vivo.
 - Ejecucion de comandos autorizada desde el panel.
 - Captura de pantalla bajo permisos del sistema operativo.
 - Listado, descarga y subida de archivos.
@@ -96,6 +108,7 @@ DATABASE_URL=sqlite:///./am_connect.db
 ENABLE_COMMAND_EXECUTION=true
 ENABLE_FILE_TRANSFER=true
 ENABLE_SCREENSHOTS=true
+ENABLE_REMOTE_CONTROL=true
 ```
 
 Para usar HTTPS/WSS, genera certificados y activa:
@@ -117,11 +130,12 @@ SSL_KEY=certs/key.pem
 - `GET /api/devices/{device_id}/files?path=...` lista archivos.
 - `GET /api/devices/{device_id}/files/download?path=...` descarga un archivo en base64.
 - `POST /api/devices/{device_id}/files/upload` sube un archivo.
+- `WS /ws/control/{device_id}?token=...` abre el canal de pantalla en vivo y control.
 
 ## Siguientes mejoras recomendadas
 
-- Control remoto grafico interactivo con eventos de teclado/mouse y streaming de pantalla.
 - 2FA para administradores.
 - Roles/permisos por equipo.
 - Empaquetado del agente para Windows/macOS/Linux con instalador visible.
 - Almacenamiento externo para archivos grandes.
+- Optimizacion avanzada de streaming con video incremental/WebRTC.
