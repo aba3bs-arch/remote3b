@@ -1,383 +1,345 @@
 #!/usr/bin/env python3
-"""
-Remote3B Server - Professional RAT Backend
-Handles multiple device connections via WebSocket with TLS encryption and JWT authentication
+"""AM-Connect server.
+
+The server exposes a small web dashboard, authenticated REST APIs and an
+authenticated WebSocket endpoint used by visible, enrolled agents.
 """
 
-import os
-import json
-import asyncio
+from __future__ import annotations
+
+import base64
+import binascii
 import logging
-from datetime import datetime
-from typing import Dict, Set
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import uvicorn
-from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 
-from connection_manager import ConnectionManager
-from security import SecurityManager
+try:
+    from .config import settings
+    from .connection_manager import AgentRequestTimeout, ConnectionManager, DeviceOfflineError
+    from .models import (
+        BootstrapRequest,
+        CommandRequest,
+        DeviceCreateRequest,
+        FileUploadRequest,
+        LoginRequest,
+        ScreenshotRequest,
+        TokenResponse,
+    )
+    from .security import (
+        SecurityError,
+        constant_time_equals,
+        create_access_token,
+        decode_access_token,
+        extract_bearer_token,
+        hash_device_secret,
+        hash_password,
+        new_device_secret,
+        validate_password,
+        verify_password,
+    )
+    from .store import Store
+except ImportError:  # pragma: no cover - allows running python server/main.py
+    from config import settings
+    from connection_manager import AgentRequestTimeout, ConnectionManager, DeviceOfflineError
+    from models import (
+        BootstrapRequest,
+        CommandRequest,
+        DeviceCreateRequest,
+        FileUploadRequest,
+        LoginRequest,
+        ScreenshotRequest,
+        TokenResponse,
+    )
+    from security import (
+        SecurityError,
+        constant_time_equals,
+        create_access_token,
+        decode_access_token,
+        extract_bearer_token,
+        hash_device_secret,
+        hash_password,
+        new_device_secret,
+        validate_password,
+        verify_password,
+    )
+    from store import Store
 
-# Load environment variables
-load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("am-connect")
 
-# Initialize FastAPI app
 app = FastAPI(
-    title="Remote3B Server",
-    description="Professional Remote Access Tool with TLS, 2FA and Video Recording",
-    version="1.0.0"
+    title=settings.app_name,
+    description="Panel de acceso remoto autorizado para equipos enrolados explicitamente.",
+    version="0.1.0",
 )
-
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(','),
+    allow_origins=list(settings.allowed_origins),
     allow_credentials=True,
     allow_methods=["*"],
-    expose_headers=["*"],
     allow_headers=["*"],
 )
 
-# Initialize managers
-connection_manager = ConnectionManager()
-security_manager = SecurityManager()
-
-# Store connected devices
-connected_devices: Dict[str, dict] = {}
+store = Store(settings.database_path)
+connections = ConnectionManager()
 
 
-# ===== HEALTH CHECK =====
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
+def public_device(device: dict, online: bool) -> dict:
     return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "connected_devices": len(connected_devices),
-        "version": "1.0.0"
+        "id": device["id"],
+        "name": device["name"],
+        "platform": device.get("platform"),
+        "hostname": device.get("hostname"),
+        "agent_version": device.get("agent_version"),
+        "created_at": device["created_at"],
+        "last_seen": device.get("last_seen"),
+        "online": online,
     }
 
 
-# ===== AUTHENTICATION ENDPOINTS =====
-@app.post("/api/auth/register")
-async def register(username: str, email: str, password: str):
-    """Register a new user"""
+def current_user(authorization: Annotated[str | None, Header()] = None) -> dict:
     try:
-        user = security_manager.register_user(username, email, password)
-        return {
-            "status": "success",
-            "message": "User registered successfully",
-            "user_id": user['id'],
-            "username": user['username']
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        payload = decode_access_token(extract_bearer_token(authorization))
+    except SecurityError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    user = store.get_user_by_id(payload["sub"])
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado.")
+    return user
 
 
-@app.post("/api/auth/login")
-async def login(username: str, password: str, totp_code: str = None):
-    """Login user"""
+def get_owned_device(device_id: str, user: dict) -> dict:
+    device = store.get_device(device_id)
+    if device is None or device["owner_user_id"] != user["id"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipo no encontrado.")
+    return device
+
+
+async def ask_agent(device_id: str, payload: dict, timeout: int | None = None) -> dict:
     try:
-        user, tokens = security_manager.login_user(username, password, totp_code)
-        return {
-            "status": "success",
-            "message": "Login successful",
-            "access_token": tokens['access_token'],
-            "refresh_token": tokens['refresh_token'],
-            "user": {
-                "id": user['id'],
-                "username": user['username'],
-                "email": user['email'],
-                "two_factor_enabled": user.get('two_factor_enabled', False)
-            }
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        return await connections.send_request(
+            device_id,
+            payload,
+            timeout=timeout or settings.request_timeout_seconds,
+        )
+    except DeviceOfflineError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except AgentRequestTimeout as exc:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc)) from exc
 
 
-@app.post("/api/auth/enable-2fa")
-async def enable_2fa(user_id: str):
-    """Enable 2FA for user"""
-    try:
-        secret, qr_code = security_manager.enable_2fa(user_id)
-        return {
-            "status": "success",
-            "message": "2FA enabled",
-            "secret": secret,
-            "qr_code": qr_code
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/api/auth/confirm-2fa")
-async def confirm_2fa(user_id: str, totp_code: str):
-    """Confirm 2FA setup"""
-    try:
-        security_manager.confirm_2fa(user_id, totp_code)
-        return {
-            "status": "success",
-            "message": "2FA confirmed successfully"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# ===== DEVICE ENDPOINTS =====
-@app.post("/api/devices/register")
-async def register_device(device_name: str, os: str, authorization: str = Header(None)):
-    """Register a new device"""
-    try:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing authorization token")
-        
-        user = security_manager.verify_token(authorization.replace('Bearer ', ''))
-        
-        device_id = f"device_{len(connected_devices) + 1:03d}"
-        device_token = security_manager.create_device_token(device_id, user['id'])
-        
-        connected_devices[device_id] = {
-            "device_name": device_name,
-            "os": os,
-            "user_id": user['id'],
-            "is_online": False,
-            "created_at": datetime.now().isoformat(),
-            "last_seen": None
-        }
-        
-        logger.info(f"Device registered: {device_id}")
-        
-        return {
-            "status": "success",
-            "device_id": device_id,
-            "device_token": device_token,
-            "message": "Device registered successfully"
-        }
-    except Exception as e:
-        logger.error(f"Error registering device: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/api/devices")
-async def list_devices(authorization: str = Header(None)):
-    """List all devices"""
-    try:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing authorization token")
-        
-        user = security_manager.verify_token(authorization.replace('Bearer ', ''))
-        
-        devices = [
-            {
-                "device_id": dev_id,
-                **device_info,
-                "is_online": dev_id in connection_manager.active_connections
-            }
-            for dev_id, device_info in connected_devices.items()
-            if device_info['user_id'] == user['id']
-        ]
-        
-        return {
-            "status": "success",
-            "devices": devices,
-            "total": len(devices)
-        }
-    except Exception as e:
-        logger.error(f"Error listing devices: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/api/devices/{device_id}/status")
-async def device_status(device_id: str, authorization: str = Header(None)):
-    """Get device status"""
-    try:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing authorization token")
-        
-        if device_id not in connected_devices:
-            raise HTTPException(status_code=404, detail="Device not found")
-        
-        device = connected_devices[device_id]
-        
-        return {
-            "status": "success",
-            "device_id": device_id,
-            "device_name": device['device_name'],
-            "os": device['os'],
-            "is_online": device_id in connection_manager.active_connections,
-            "created_at": device['created_at'],
-            "last_seen": device['last_seen']
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting device status: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# ===== WEBSOCKET ENDPOINT =====
-@app.websocket("/ws/{device_id}")
-async def websocket_endpoint(websocket: WebSocket, device_id: str):
-    """
-    WebSocket endpoint for device communication
-    Handles real-time communication between control panel and devices
-    """
-    try:
-        # Verify device exists
-        if device_id not in connected_devices:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-        
-        # Accept connection
-        await connection_manager.connect(websocket, device_id)
-        connected_devices[device_id]['is_online'] = True
-        connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
-        
-        logger.info(f"Device connected: {device_id}")
-        
-        # Broadcast device online status
-        await connection_manager.broadcast({
-            "type": "device_online",
-            "device_id": device_id,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        # Handle incoming messages
-        while True:
-            try:
-                data = await websocket.receive_json()
-                
-                # Process message based on type
-                if data.get('type') == 'screen_capture':
-                    await connection_manager.broadcast(data)
-                
-                elif data.get('type') == 'command_response':
-                    # Route to specific controller
-                    target = data.get('target')
-                    if target:
-                        await connection_manager.send_to(target, data)
-                
-                elif data.get('type') == 'chat':
-                    await connection_manager.broadcast(data)
-                
-                elif data.get('type') == 'file_transfer':
-                    await connection_manager.broadcast(data)
-                
-                logger.debug(f"Message from {device_id}: {data.get('type')}")
-                
-            except json.JSONDecodeError:
-                logger.error("Invalid JSON received")
-                continue
-    
-    except WebSocketDisconnect:
-        connection_manager.disconnect(device_id)
-        connected_devices[device_id]['is_online'] = False
-        connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
-        
-        logger.info(f"Device disconnected: {device_id}")
-        
-        # Broadcast device offline status
-        await connection_manager.broadcast({
-            "type": "device_offline",
-            "device_id": device_id,
-            "timestamp": datetime.now().isoformat()
-        })
-    
-    except Exception as e:
-        logger.error(f"WebSocket error for {device_id}: {e}")
-        connection_manager.disconnect(device_id)
-        connected_devices[device_id]['is_online'] = False
-
-
-# ===== COMMAND EXECUTION =====
-@app.post("/api/devices/{device_id}/command")
-async def execute_command(device_id: str, command: str, authorization: str = Header(None)):
-    """Execute command on remote device"""
-    try:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing authorization token")
-        
-        if device_id not in connected_devices:
-            raise HTTPException(status_code=404, detail="Device not found")
-        
-        if device_id not in connection_manager.active_connections:
-            raise HTTPException(status_code=503, detail="Device is offline")
-        
-        command_id = f"cmd_{int(datetime.now().timestamp())}" 
-        
-        # Send command to device
-        await connection_manager.send_to(device_id, {
-            "type": "execute_command",
-            "command": command,
-            "command_id": command_id
-        })
-        
-        return {
-            "status": "success",
-            "message": "Command sent to device",
-            "command_id": command_id,
-            "device_id": device_id
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error executing command: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# ===== ERROR HANDLERS =====
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
+async def http_exception_handler(_request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "status": "error",
-            "message": exc.detail,
-            "timestamp": datetime.now().isoformat()
-        }
+        content={"status": "error", "message": exc.detail},
     )
 
 
+@app.get("/")
+async def dashboard():
+    index_path = Path(__file__).parent / "static" / "index.html"
+    return FileResponse(index_path)
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "app": settings.app_name,
+        "users_configured": store.count_users() > 0,
+        "online_devices": len(connections.online_device_ids()),
+    }
+
+
+@app.post("/api/auth/bootstrap", response_model=TokenResponse)
+async def bootstrap(payload: BootstrapRequest):
+    if store.count_users() > 0 and not settings.allow_registration_after_bootstrap:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El primer usuario ya fue creado. Inicia sesion.",
+        )
+    validate_password(payload.password)
+    if store.get_user_by_username(payload.username):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El usuario ya existe.")
+    user = store.create_user(payload.username, hash_password(payload.password))
+    store.log_event("user.bootstrap", user_id=user["id"])
+    return TokenResponse(access_token=create_access_token(user["id"], user["username"]), username=user["username"])
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login(payload: LoginRequest):
+    user = store.get_user_by_username(payload.username)
+    if user is None or not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario o contrasena incorrectos.")
+    store.update_last_login(user["id"])
+    store.log_event("user.login", user_id=user["id"])
+    return TokenResponse(access_token=create_access_token(user["id"], user["username"]), username=user["username"])
+
+
+@app.get("/api/me")
+async def me(user: Annotated[dict, Depends(current_user)]):
+    return {"id": user["id"], "username": user["username"], "created_at": user["created_at"]}
+
+
+@app.post("/api/devices")
+async def create_device(payload: DeviceCreateRequest, user: Annotated[dict, Depends(current_user)]):
+    secret = new_device_secret()
+    device = store.create_device(user["id"], payload.name, hash_device_secret(secret))
+    store.log_event("device.create", user_id=user["id"], device_id=device["id"], detail=payload.name)
+    return {
+        "device": public_device(device, online=False),
+        "device_id": device["id"],
+        "device_secret": secret,
+        "agent_command": (
+            f"AM_CONNECT_SERVER_URL=ws://localhost:{settings.port} "
+            f"AM_CONNECT_DEVICE_ID={device['id']} "
+            f"AM_CONNECT_DEVICE_SECRET={secret} python client/agent.py"
+        ),
+        "note": "Guarda este secreto ahora; no se vuelve a mostrar.",
+    }
+
+
+@app.get("/api/devices")
+async def list_devices(user: Annotated[dict, Depends(current_user)]):
+    online_ids = connections.online_device_ids()
+    devices = [public_device(device, device["id"] in online_ids) for device in store.list_devices(user["id"])]
+    return {"devices": devices}
+
+
+@app.get("/api/devices/{device_id}")
+async def get_device(device_id: str, user: Annotated[dict, Depends(current_user)]):
+    device = get_owned_device(device_id, user)
+    return {"device": public_device(device, connections.is_online(device_id))}
+
+
+@app.post("/api/devices/{device_id}/command")
+async def execute_command(
+    device_id: str,
+    payload: CommandRequest,
+    user: Annotated[dict, Depends(current_user)],
+):
+    if not settings.enable_command_execution:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="La ejecucion de comandos esta deshabilitada.")
+    get_owned_device(device_id, user)
+    store.log_event("device.command", user_id=user["id"], device_id=device_id, detail=payload.command[:250])
+    return await ask_agent(
+        device_id,
+        {"type": "command", "command": payload.command, "timeout": payload.timeout},
+        timeout=payload.timeout + 5,
+    )
+
+
+@app.post("/api/devices/{device_id}/screenshot")
+async def request_screenshot(
+    device_id: str,
+    payload: ScreenshotRequest,
+    user: Annotated[dict, Depends(current_user)],
+):
+    if not settings.enable_screenshots:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Las capturas estan deshabilitadas.")
+    get_owned_device(device_id, user)
+    store.log_event("device.screenshot", user_id=user["id"], device_id=device_id)
+    return await ask_agent(device_id, {"type": "screenshot", "quality": payload.quality})
+
+
+@app.get("/api/devices/{device_id}/files")
+async def list_files(
+    device_id: str,
+    user: Annotated[dict, Depends(current_user)],
+    path: str = Query(default="."),
+):
+    if not settings.enable_file_transfer:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="La transferencia de archivos esta deshabilitada.")
+    get_owned_device(device_id, user)
+    store.log_event("device.files.list", user_id=user["id"], device_id=device_id, detail=path[:250])
+    return await ask_agent(device_id, {"type": "file_list", "path": path})
+
+
+@app.get("/api/devices/{device_id}/files/download")
+async def download_file(
+    device_id: str,
+    user: Annotated[dict, Depends(current_user)],
+    path: str = Query(..., min_length=1),
+):
+    if not settings.enable_file_transfer:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="La transferencia de archivos esta deshabilitada.")
+    get_owned_device(device_id, user)
+    store.log_event("device.files.download", user_id=user["id"], device_id=device_id, detail=path[:250])
+    return await ask_agent(device_id, {"type": "file_download", "path": path})
+
+
+@app.post("/api/devices/{device_id}/files/upload")
+async def upload_file(
+    device_id: str,
+    payload: FileUploadRequest,
+    user: Annotated[dict, Depends(current_user)],
+):
+    if not settings.enable_file_transfer:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="La transferencia de archivos esta deshabilitada.")
+    try:
+        raw_size = len(base64.b64decode(payload.content_base64.encode("utf-8"), validate=True))
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contenido base64 invalido.") from exc
+    if raw_size > settings.max_upload_bytes:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Archivo demasiado grande.")
+    get_owned_device(device_id, user)
+    store.log_event("device.files.upload", user_id=user["id"], device_id=device_id, detail=payload.path[:250])
+    return await ask_agent(
+        device_id,
+        {
+            "type": "file_upload",
+            "path": payload.path,
+            "content_base64": payload.content_base64,
+            "overwrite": payload.overwrite,
+        },
+    )
+
+
+@app.websocket("/ws/agent/{device_id}")
+async def agent_socket(websocket: WebSocket, device_id: str, token: str):
+    device = store.get_device(device_id)
+    expected_hash = device["device_secret_hash"] if device else ""
+    provided_hash = hash_device_secret(token)
+    if device is None or not constant_time_equals(provided_hash, expected_hash):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await connections.connect_device(device_id, websocket)
+    store.touch_device(device_id)
+    logger.info("Agent connected: %s", device_id)
+    try:
+        while True:
+            message = await websocket.receive_json()
+            store.touch_device(device_id)
+            if message.get("type") == "system_info":
+                store.update_device_metadata(device_id, message)
+            else:
+                connections.resolve_agent_message(message)
+    except WebSocketDisconnect:
+        logger.info("Agent disconnected: %s", device_id)
+    except Exception:
+        logger.exception("Agent socket failed for %s", device_id)
+    finally:
+        await connections.disconnect_device(device_id)
+
+
 if __name__ == "__main__":
-    # Get configuration from environment
-    host = os.getenv('HOST', '0.0.0.0')
-    port = int(os.getenv('PORT', 8000))
-    use_ssl = os.getenv('USE_SSL', 'true').lower() == 'true'
-    
-    ssl_keyfile = None
-    ssl_certfile = None
-    
-    if use_ssl:
-        ssl_keyfile = os.getenv('SSL_KEY', 'certs/key.pem')
-        ssl_certfile = os.getenv('SSL_CERT', 'certs/cert.pem')
-        
-        # Check if certificates exist
-        if not Path(ssl_certfile).exists() or not Path(ssl_keyfile).exists():
-            logger.warning(f"SSL certificates not found at {ssl_certfile} and {ssl_keyfile}")
-            logger.warning("Run 'python generate_certs.py' to generate them")
-            use_ssl = False
-    
-    logger.info(f"Starting Remote3B Server on {host}:{port}")
-    logger.info(f"SSL/TLS: {'Enabled' if use_ssl else 'Disabled'}")
-    logger.info(f"Dashboard: http://localhost:3000")
-    
-    # Run server
+    ssl_keyfile = str(settings.ssl_key) if settings.use_ssl and settings.ssl_key.exists() else None
+    ssl_certfile = str(settings.ssl_cert) if settings.use_ssl and settings.ssl_cert.exists() else None
+    logger.info("Starting AM-Connect on %s:%s", settings.host, settings.port)
     uvicorn.run(
-        "main:app",
-        host=host,
-        port=port,
-        reload=os.getenv('DEBUG', 'false').lower() == 'true',
-        ssl_keyfile=ssl_keyfile if use_ssl else None,
-        ssl_certfile=ssl_certfile if use_ssl else None,
-        log_level="info"
+        app,
+        host=settings.host,
+        port=settings.port,
+        log_level="debug" if settings.debug else "info",
+        ssl_keyfile=ssl_keyfile,
+        ssl_certfile=ssl_certfile,
     )

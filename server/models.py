@@ -1,51 +1,41 @@
 #!/usr/bin/env python3
-"""
-Pydantic models for data validation
-"""
+"""Pydantic request and response models for AM-Connect."""
 
-from datetime import datetime
-from typing import Optional, List
-from pydantic import BaseModel, EmailStr, Field
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
 
 
-class UserRegister(BaseModel):
-    """User registration model"""
+class BootstrapRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
-    email: EmailStr
-    password: str = Field(..., min_length=12)
+    password: str = Field(..., min_length=10, max_length=256)
 
 
-class UserLogin(BaseModel):
-    """User login model"""
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=50)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
     username: str
-    password: str
-    totp_code: Optional[str] = None
 
 
-class DeviceRegister(BaseModel):
-    """Device registration model"""
-    device_name: str
-    os: str
+class DeviceCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
 
 
 class CommandRequest(BaseModel):
-    """Command execution request"""
-    command: str
-    timeout: int = 30
-
-
-class FileTransferRequest(BaseModel):
-    """File transfer request"""
-    filepath: str
-    action: str  # download, upload, list
-
-
-class ChatMessage(BaseModel):
-    """Chat message model"""
-    message: str
-    timestamp: datetime = Field(default_factory=datetime.now)
+    command: str = Field(..., min_length=1, max_length=4000)
+    timeout: int = Field(default=30, ge=1, le=300)
 
 
 class ScreenshotRequest(BaseModel):
-    """Screenshot request"""
-    quality: int = Field(80, ge=1, le=100)
+    quality: int = Field(default=75, ge=20, le=95)
+
+
+class FileUploadRequest(BaseModel):
+    path: str = Field(..., min_length=1, max_length=2000)
+    content_base64: str = Field(..., min_length=1)
+    overwrite: bool = True
