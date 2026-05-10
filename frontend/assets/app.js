@@ -112,6 +112,15 @@ function statusClass(device) {
   return device.is_online ? "online" : "offline";
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function formatLastSeen(device) {
   if (!device.last_seen) {
     return "Sin actividad registrada";
@@ -170,17 +179,21 @@ function renderRows() {
 
   devices.forEach((device) => {
     const row = document.createElement("tr");
+    const os = escapeHtml(device.os);
+    const name = escapeHtml(device.device_name);
+    const status = escapeHtml(statusLabel(device));
+    const lastSeen = escapeHtml(formatLastSeen(device));
     row.className = device.device_id === state.selectedId ? "selected" : "";
     row.innerHTML = `
       <td>
         <span class="computer-name">
-          <span class="os-icon">${device.os.slice(0, 1).toUpperCase()}</span>
-          ${device.device_name}
+          <span class="os-icon">${os.slice(0, 1).toUpperCase()}</span>
+          ${name}
         </span>
       </td>
-      <td><span class="status ${statusClass(device)}">${statusLabel(device)}</span></td>
-      <td>${formatLastSeen(device)}</td>
-      <td>${device.os}</td>
+      <td><span class="status ${statusClass(device)}">${status}</span></td>
+      <td>${lastSeen}</td>
+      <td>${os}</td>
       <td>
         <div class="row-actions">
           <button class="connect-small" type="button" ${device.is_online ? "" : "disabled"}>Conectar</button>
