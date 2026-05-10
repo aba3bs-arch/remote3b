@@ -10,12 +10,12 @@
     <div class="app-shell">
       <header class="topbar">
         <div class="brand">
-          <span class="brand-mark">R3B</span>
-          <span class="brand-name">Remote3B Connect</span>
+          <span class="brand-name">Remote3B</span>
         </div>
         <button class="icon-button" aria-label="Abrir menu">☰</button>
-        <div class="plan-pill">Plan: Soporte autorizado</div>
-        <button class="top-action secondary">Centro de seguridad</button>
+        <div class="plan-pill">Plan: Consumer (1 Computer)</div>
+        <button class="top-action secondary">Actualizar datos de pago</button>
+        <button class="top-action upgrade">Upgrade</button>
         <button class="top-action primary">Agregar equipo / Descargar</button>
         <div class="language">ES ▾</div>
         <div class="avatar">A</div>
@@ -42,46 +42,41 @@
 
       <main class="content" id="computers">
         <section class="page-toolbar">
-          <div>
+          <div class="page-title">
             <h1>Computadoras</h1>
-            <p class="muted">Administra conexiones remotas con consentimiento y trazabilidad.</p>
           </div>
-          <div class="usage-card">
-            <span>Computadoras usadas</span>
+          <div class="usage-text">
+            <span>Computadoras usadas:</span>
             <strong id="usedCount">9</strong>
           </div>
-          <label class="search-box">
-            <span>Buscar</span>
-            <input id="searchInput" type="search" placeholder="Nombre, estado o sistema" />
+          <button id="tokenButton" class="computer-filter" type="button">Computadoras ▾</button>
+          <label class="search-box" aria-label="Buscar computadoras">
+            <input id="searchInput" type="search" placeholder="Buscar" />
           </label>
         </section>
 
-        <section class="notice-card" role="note">
+        <section class="safety-note" role="note">
           <strong>Uso autorizado solamente.</strong>
           <span>Antes de iniciar una sesion confirma que el propietario del equipo dio permiso explicito.</span>
         </section>
 
         <section class="computer-panel" aria-labelledby="computerListTitle">
           <div class="panel-header">
-            <div>
-              <h2 id="computerListTitle">Lista de equipos</h2>
-              <p id="dataSource" class="muted">Mostrando datos de ejemplo. Guarda un token para cargar tu API.</p>
-            </div>
+            <p id="dataSource" class="muted">Mostrando datos de ejemplo. Guarda un token para cargar tu API.</p>
             <div class="panel-actions">
               <button id="exportButton" class="link-button" type="button">Exportar lista</button>
-              <button id="tokenButton" class="outline-button" type="button">Configurar token API</button>
             </div>
           </div>
 
           <div class="table-wrap">
-            <table>
+            <table aria-labelledby="computerListTitle">
+              <caption id="computerListTitle">Lista de equipos</caption>
               <thead>
                 <tr>
                   <th>Nombre del equipo ↑</th>
                   <th>Estado</th>
-                  <th>Ultimo acceso</th>
-                  <th>Sistema</th>
-                  <th>Acciones</th>
+                  <th>Fecha de acceso</th>
+                  <th aria-label="Backup"></th>
                 </tr>
               </thead>
               <tbody id="computerRows"></tbody>
@@ -89,7 +84,7 @@
           </div>
         </section>
 
-        <section class="details-grid">
+        <section class="details-grid" aria-label="Detalle del equipo seleccionado">
           <article class="detail-card">
             <h3 id="selectedName">Selecciona un equipo</h3>
             <p id="selectedMeta" class="muted">Veras aqui los detalles de la sesion y acciones seguras.</p>

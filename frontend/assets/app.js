@@ -172,7 +172,7 @@ function renderRows() {
 
   if (devices.length === 0) {
     const emptyRow = document.createElement("tr");
-    emptyRow.innerHTML = '<td colspan="5">No se encontraron equipos.</td>';
+    emptyRow.innerHTML = '<td colspan="4">No se encontraron equipos.</td>';
     rows.appendChild(emptyRow);
     return;
   }
@@ -191,15 +191,14 @@ function renderRows() {
           ${name}
         </span>
       </td>
-      <td><span class="status ${statusClass(device)}">${status}</span></td>
-      <td>${lastSeen}</td>
-      <td>${os}</td>
       <td>
-        <div class="row-actions">
+        <div class="status-actions">
           <button class="connect-small" type="button" ${device.is_online ? "" : "disabled"}>Conectar</button>
-          <button class="cloud-action" type="button" aria-label="Backup">☁</button>
+          <span class="status ${statusClass(device)}">${status}</span>
         </div>
       </td>
+      <td>${lastSeen}</td>
+      <td><button class="cloud-action" type="button" aria-label="Backup">☁</button></td>
     `;
 
     row.addEventListener("click", () => selectDevice(device.device_id));
