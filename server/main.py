@@ -91,6 +91,15 @@ async def dashboard():
     return await dashboard_home()
 
 
+@app.get("/session")
+async def remote_session():
+    """Serve the remote session viewer shell."""
+    session_file = DASHBOARD_DIR / "session.html"
+    if not session_file.exists():
+        raise HTTPException(status_code=404, detail="Session frontend not found")
+    return FileResponse(session_file)
+
+
 # ===== AUTHENTICATION ENDPOINTS =====
 @app.post("/api/auth/register")
 async def register(username: str, email: str, password: str):

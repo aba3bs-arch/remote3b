@@ -108,6 +108,8 @@ python client/agent.py
 Open `https://localhost:8000` or `https://localhost:8000/dashboard` in your browser.
 The dashboard includes a RemotePC-style computer list, search, export, connection actions,
 and an optional API token field to load real devices from `GET /api/devices`.
+Starting a connection opens `/session`, a remote-view shell with a collapsible operator
+toolbar that is local to the control panel and not part of the remote screen content.
 
 ## 🔐 Security Features
 

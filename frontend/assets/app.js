@@ -205,7 +205,7 @@ function renderRows() {
     row.querySelector(".connect-small").addEventListener("click", (event) => {
       event.stopPropagation();
       selectDevice(device.device_id);
-      showConnectionMessage(device);
+      openRemoteSession(device);
     });
     rows.appendChild(row);
   });
@@ -242,15 +242,25 @@ function selectDevice(deviceId) {
   render();
 }
 
-function showConnectionMessage(device) {
+function openRemoteSession(device) {
   if (!device.is_online) {
     window.alert("El equipo esta sin conexion. Intenta de nuevo cuando el agente autorizado este en linea.");
     return;
   }
 
-  window.alert(
-    `Solicitud de conexion preparada para ${device.device_name}. Confirma el consentimiento del usuario antes de iniciar la sesion.`
+  const hasConsent = window.confirm(
+    `Confirma que tienes autorizacion para iniciar sesion en ${device.device_name}.`
   );
+
+  if (!hasConsent) {
+    return;
+  }
+
+  const query = new URLSearchParams({
+    device: device.device_id,
+    name: device.device_name,
+  });
+  window.location.assign(`/session?${query.toString()}`);
 }
 
 async function loadDevicesFromApi() {
@@ -332,7 +342,7 @@ saveTokenButton.addEventListener("click", () => {
 connectButton.addEventListener("click", () => {
   const device = state.devices.find((item) => item.device_id === state.selectedId);
   if (device) {
-    showConnectionMessage(device);
+    openRemoteSession(device);
   }
 });
 
