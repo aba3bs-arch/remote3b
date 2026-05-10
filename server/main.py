@@ -14,7 +14,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 
@@ -54,6 +55,12 @@ security_manager = SecurityManager()
 
 # Store connected devices
 connected_devices: Dict[str, dict] = {}
+BASE_DIR = Path(__file__).resolve().parent.parent
+DASHBOARD_DIR = BASE_DIR / "frontend"
+ASSETS_DIR = DASHBOARD_DIR / "assets"
+
+if ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 
 
 # ===== HEALTH CHECK =====
@@ -66,6 +73,22 @@ async def health_check():
         "connected_devices": len(connected_devices),
         "version": "1.0.0"
     }
+
+
+# ===== DASHBOARD =====
+@app.get("/")
+async def dashboard_home():
+    """Serve the web dashboard."""
+    index_file = DASHBOARD_DIR / "index.html"
+    if not index_file.exists():
+        raise HTTPException(status_code=404, detail="Dashboard frontend not found")
+    return FileResponse(index_file)
+
+
+@app.get("/dashboard")
+async def dashboard():
+    """Serve the web dashboard from a dedicated route."""
+    return await dashboard_home()
 
 
 # ===== AUTHENTICATION ENDPOINTS =====

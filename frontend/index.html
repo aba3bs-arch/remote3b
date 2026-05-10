@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Remote3B Connect</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">R3B</span>
+          <span class="brand-name">Remote3B Connect</span>
+        </div>
+        <button class="icon-button" aria-label="Abrir menu">☰</button>
+        <div class="plan-pill">Plan: Soporte autorizado</div>
+        <button class="top-action secondary">Centro de seguridad</button>
+        <button class="top-action primary">Agregar equipo / Descargar</button>
+        <div class="language">ES ▾</div>
+        <div class="avatar">A</div>
+      </header>
+
+      <aside class="sidebar" aria-label="Navegacion principal">
+        <nav>
+          <a class="nav-item active" href="#computers"><span>▣</span>Computadoras</a>
+          <a class="nav-item" href="#files"><span>▤</span>Acceso a archivos</a>
+          <a class="nav-item" href="#attended"><span>▥</span>Acceso atendido</a>
+          <a class="nav-item" href="#logs"><span>▧</span>Registros</a>
+          <a class="nav-item" href="#account"><span>♙</span>Mi cuenta</a>
+          <a class="nav-item" href="#rdp"><span>◉</span>Conector RDP</a>
+          <a class="nav-item" href="#help"><span>✚</span>HelpDesk</a>
+          <div class="nav-group">
+            <button class="nav-item group-title" type="button"><span>☁</span>Backup <span class="chevron">⌄</span></button>
+            <a class="nav-item nested" href="#computer-backup">Backup de computadoras</a>
+            <a class="nav-item nested" href="#workspace">Google Workspace</a>
+            <a class="nav-item nested" href="#m365">Microsoft 365</a>
+          </div>
+          <a class="nav-item" href="#meeting"><span>☏</span>Reuniones</a>
+        </nav>
+      </aside>
+
+      <main class="content" id="computers">
+        <section class="page-toolbar">
+          <div>
+            <h1>Computadoras</h1>
+            <p class="muted">Administra conexiones remotas con consentimiento y trazabilidad.</p>
+          </div>
+          <div class="usage-card">
+            <span>Computadoras usadas</span>
+            <strong id="usedCount">9</strong>
+          </div>
+          <label class="search-box">
+            <span>Buscar</span>
+            <input id="searchInput" type="search" placeholder="Nombre, estado o sistema" />
+          </label>
+        </section>
+
+        <section class="notice-card" role="note">
+          <strong>Uso autorizado solamente.</strong>
+          <span>Antes de iniciar una sesion confirma que el propietario del equipo dio permiso explicito.</span>
+        </section>
+
+        <section class="computer-panel" aria-labelledby="computerListTitle">
+          <div class="panel-header">
+            <div>
+              <h2 id="computerListTitle">Lista de equipos</h2>
+              <p id="dataSource" class="muted">Mostrando datos de ejemplo. Guarda un token para cargar tu API.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="exportButton" class="link-button" type="button">Exportar lista</button>
+              <button id="tokenButton" class="outline-button" type="button">Configurar token API</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nombre del equipo ↑</th>
+                  <th>Estado</th>
+                  <th>Ultimo acceso</th>
+                  <th>Sistema</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="computerRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="details-grid">
+          <article class="detail-card">
+            <h3 id="selectedName">Selecciona un equipo</h3>
+            <p id="selectedMeta" class="muted">Veras aqui los detalles de la sesion y acciones seguras.</p>
+            <div class="quick-actions">
+              <button class="primary-action" id="connectButton" type="button" disabled>Conectar</button>
+              <button class="outline-button" id="filesButton" type="button" disabled>Archivos</button>
+              <button class="outline-button" id="auditButton" type="button" disabled>Auditoria</button>
+            </div>
+          </article>
+          <article class="detail-card">
+            <h3>Resumen</h3>
+            <div class="summary-list">
+              <span>En linea <strong id="onlineCount">0</strong></span>
+              <span>En sesion <strong id="sessionCount">0</strong></span>
+              <span>Sin conexion <strong id="offlineCount">0</strong></span>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="tokenDialog">
+      <form method="dialog" class="dialog-card">
+        <h2>Token de API</h2>
+        <p class="muted">Pega un token Bearer de un usuario autorizado para cargar equipos reales desde <code>/api/devices</code>.</p>
+        <label>
+          Token
+          <textarea id="tokenInput" rows="4" placeholder="eyJ..."></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel" class="outline-button" type="submit">Cancelar</button>
+          <button id="saveTokenButton" value="default" class="primary-action" type="button">Guardar y cargar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

@@ -27,7 +27,7 @@
 - Automatic reconnection
 
 ### 🎨 Professional Interface
-- Modern React dashboard
+- Built-in web dashboard served by FastAPI
 - Live screen viewer
 - Remote terminal
 - File manager
@@ -48,11 +48,11 @@ Remote3B/
 ├── client/                # Remote agent
 │   └── agent.py           # Client that runs on devices
 │
-├── frontend/              # React UI
-│   └── src/
-│       ├── pages/
-│       ├── components/
-│       └── App.jsx
+├── frontend/              # Static web dashboard
+│   ├── index.html
+│   └── assets/
+│       ├── app.js
+│       └── styles.css
 │
 └── generate_certs.py      # TLS certificate generator
 ```
@@ -61,7 +61,6 @@ Remote3B/
 
 ### Prerequisites
 - Python 3.8+
-- Node.js 16+ (for frontend)
 - OpenSSL (for TLS certificates)
 
 ### Steps
@@ -105,13 +104,10 @@ source venv/bin/activate
 python client/agent.py
 ```
 
-### Terminal 3: Start Frontend
-```bash
-cd frontend
-npm install
-npm start
-```
-Open `http://localhost:3000` in your browser
+### Open Dashboard
+Open `https://localhost:8000` or `https://localhost:8000/dashboard` in your browser.
+The dashboard includes a RemotePC-style computer list, search, export, connection actions,
+and an optional API token field to load real devices from `GET /api/devices`.
 
 ## 🔐 Security Features
 
@@ -279,7 +275,7 @@ export DEVICE_ID=device_002
 export DEVICE_TOKEN=eyJ0eXAiOiJKV1QiLCJhbGc...
 python client/agent.py
 
-# 3. View in control panel (http://localhost:3000)
+# 3. View in control panel (https://localhost:8000/dashboard)
 # Device appears as connected
 ```
 
