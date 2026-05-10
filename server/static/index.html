@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AM-Connect</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #0f172a; color: #e2e8f0; }
+    header { padding: 24px 32px; background: linear-gradient(135deg, #1e293b, #111827); border-bottom: 1px solid #334155; }
+    h1, h2, h3 { margin-top: 0; }
+    main { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 20px; padding: 24px; }
+    section, .card { background: #111827; border: 1px solid #334155; border-radius: 14px; padding: 18px; box-shadow: 0 20px 45px rgba(0, 0, 0, .2); }
+    label { display: block; color: #94a3b8; margin: 10px 0 6px; font-size: 13px; }
+    input, textarea, button { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid #334155; padding: 10px 12px; font: inherit; }
+    input, textarea { background: #020617; color: #e2e8f0; }
+    textarea { min-height: 88px; resize: vertical; }
+    button { margin-top: 12px; background: #2563eb; border: 0; color: white; font-weight: 700; cursor: pointer; }
+    button.secondary { background: #334155; }
+    button.danger { background: #be123c; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #020617; border: 1px solid #334155; border-radius: 10px; padding: 12px; max-height: 360px; overflow: auto; }
+    .hidden { display: none !important; }
+    .devices { display: grid; gap: 10px; }
+    .device { text-align: left; background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 12px; cursor: pointer; }
+    .device.active { border-color: #38bdf8; }
+    .status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; background: #64748b; }
+    .status.online { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .muted { color: #94a3b8; font-size: 13px; }
+    .tabs { display: flex; gap: 10px; margin-bottom: 14px; }
+    .tabs button { width: auto; margin: 0; padding: 8px 12px; }
+    img.screenshot { width: 100%; border-radius: 12px; border: 1px solid #334155; background: #020617; }
+    .live-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    .live-toolbar button { width: auto; margin-top: 0; }
+    .live-viewer {
+      background: #020617;
+      border-radius: 12px;
+    }
+    .live-viewer:fullscreen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100vw;
+      height: 100vh;
+      border-radius: 0;
+      padding: 0;
+    }
+    .live-viewer:fullscreen .live-screen {
+      width: 100vw;
+      height: 100vh;
+      min-height: 100vh;
+      border-radius: 0;
+      border: 0;
+    }
+    .live-screen {
+      width: 100%;
+      min-height: 360px;
+      object-fit: contain;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      background: #020617;
+      cursor: crosshair;
+      outline: none;
+    }
+    .live-screen:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, .25); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; border-bottom: 1px solid #334155; text-align: left; font-size: 14px; }
+    code { color: #93c5fd; }
+    @media (max-width: 900px) { main, .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AM-Connect</h1>
+    <p class="muted">Panel para soporte remoto autorizado: equipos en linea, comandos, capturas y transferencia de archivos.</p>
+  </header>
+
+  <main>
+    <aside>
+      <section id="auth-panel">
+        <h2>Acceso</h2>
+        <p class="muted">Si es la primera vez, crea el usuario administrador. Luego inicia sesion con usuario y contrasena.</p>
+        <label>Usuario</label>
+        <input id="username" autocomplete="username" placeholder="admin">
+        <label>Contrasena</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="minimo 10 caracteres y numeros">
+        <button onclick="bootstrap()">Crear primer usuario</button>
+        <button class="secondary" onclick="login()">Iniciar sesion</button>
+      </section>
+
+      <section id="device-panel" class="hidden">
+        <h2>Equipos</h2>
+        <p id="session" class="muted"></p>
+        <button class="secondary" onclick="logout()">Cerrar sesion</button>
+        <label>Nombre del nuevo equipo</label>
+        <input id="new-device-name" placeholder="PC oficina">
+        <button onclick="createDevice()">Registrar equipo</button>
+        <button class="secondary" onclick="createLinkCode()">Generar codigo de enlace</button>
+        <pre id="enrollment" class="hidden"></pre>
+        <h3>En linea</h3>
+        <div id="devices" class="devices"></div>
+      </section>
+    </aside>
+
+    <section id="workspace" class="hidden">
+      <h2 id="selected-title">Selecciona un equipo</h2>
+      <p id="selected-meta" class="muted"></p>
+      <div id="tools" class="hidden">
+        <div class="tabs">
+          <button onclick="showTool('terminal')">Comandos</button>
+          <button onclick="showTool('screen')">Pantalla</button>
+          <button onclick="showTool('files')">Archivos</button>
+        </div>
+
+        <div id="tool-terminal">
+          <label>Comando</label>
+          <textarea id="command" placeholder="whoami"></textarea>
+          <button onclick="runCommand()">Ejecutar comando autorizado</button>
+          <pre id="command-output"></pre>
+        </div>
+
+        <div id="tool-screen" class="hidden">
+          <div class="live-toolbar">
+            <button onclick="startLiveControl()">Iniciar en vivo</button>
+            <button class="secondary" onclick="stopLiveControl()">Detener</button>
+            <button class="secondary" onclick="toggleFullscreen()">Pantalla completa</button>
+            <button class="secondary" onclick="takeScreenshot()">Tomar captura</button>
+          </div>
+          <p id="live-status" class="muted">Haz click en la pantalla en vivo para enfocar teclado y mouse.</p>
+          <div id="live-viewer" class="live-viewer">
+            <img id="live-screen" class="live-screen hidden" tabindex="0" alt="Pantalla remota en vivo">
+          </div>
+          <p class="muted">La vista en vivo y el control requieren permiso del sistema operativo en la PC remota.</p>
+          <img id="screenshot" class="screenshot hidden" alt="Captura remota">
+        </div>
+
+        <div id="tool-files" class="hidden">
+          <div class="grid">
+            <div>
+              <label>Ruta a listar</label>
+              <input id="file-path" value=".">
+              <button onclick="listFiles()">Listar archivos</button>
+            </div>
+            <div>
+              <label>Subir archivo a ruta remota</label>
+              <input id="upload-path" placeholder="/tmp/archivo.txt">
+              <input id="upload-file" type="file">
+              <button onclick="uploadFile()">Subir</button>
+            </div>
+          </div>
+          <div id="files-table"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let token = localStorage.getItem("amConnectToken");
+    let username = localStorage.getItem("amConnectUsername");
+    let selectedDevice = null;
+    let refreshTimer = null;
+    let controlSocket = null;
+    let liveFrameSize = { width: 1, height: 1 };
+    let lastMouseMoveAt = 0;
+
+    function authHeaders() {
+      return { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || data.detail || response.statusText);
+      return data;
+    }
+
+    function setSession(accessToken, name) {
+      token = accessToken;
+      username = name;
+      localStorage.setItem("amConnectToken", token);
+      localStorage.setItem("amConnectUsername", username);
+      document.getElementById("auth-panel").classList.add("hidden");
+      document.getElementById("device-panel").classList.remove("hidden");
+      document.getElementById("workspace").classList.remove("hidden");
+      document.getElementById("session").textContent = `Sesion: ${username}`;
+      refreshDevices();
+      refreshTimer = setInterval(refreshDevices, 5000);
+    }
+
+    function logout() {
+      localStorage.removeItem("amConnectToken");
+      localStorage.removeItem("amConnectUsername");
+      location.reload();
+    }
+
+    async function bootstrap() {
+      const payload = credentials();
+      const data = await api("/api/auth/bootstrap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      setSession(data.access_token, data.username);
+    }
+
+    async function login() {
+      const payload = credentials();
+      const data = await api("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      setSession(data.access_token, data.username);
+    }
+
+    function credentials() {
+      return {
+        username: document.getElementById("username").value.trim(),
+        password: document.getElementById("password").value
+      };
+    }
+
+    async function createDevice() {
+      const name = document.getElementById("new-device-name").value.trim();
+      if (!name) return alert("Escribe un nombre para el equipo.");
+      const data = await api("/api/devices", { method: "POST", headers: authHeaders(), body: JSON.stringify({ name }) });
+      const enrollment = document.getElementById("enrollment");
+      enrollment.classList.remove("hidden");
+      enrollment.textContent = `Equipo: ${data.device_id}\nSecreto: ${data.device_secret}\n\nComando local del agente:\n${data.agent_command}\n\n${data.note}`;
+      await refreshDevices();
+    }
+
+    async function createLinkCode() {
+      const name = document.getElementById("new-device-name").value.trim();
+      if (!name) return alert("Escribe un nombre para el equipo.");
+      const data = await api("/api/devices/link-code", { method: "POST", headers: authHeaders(), body: JSON.stringify({ name }) });
+      const enrollment = document.getElementById("enrollment");
+      enrollment.classList.remove("hidden");
+      enrollment.textContent = `Codigo de enlace: ${data.code}\nVence en: ${data.expires_in_minutes} minutos\n\nEn la PC remota ejecuta el agente con este codigo.\n\nComando PowerShell:\n${data.agent_command}\n\nPara acceso desatendido visible puedes usar:\n.\\scripts\\install_unattended_agent_windows.ps1\n\n${data.note}`;
+    }
+
+    async function refreshDevices() {
+      if (!token) return;
+      try {
+        const data = await api("/api/devices", { headers: authHeaders() });
+        const container = document.getElementById("devices");
+        container.innerHTML = "";
+        data.devices.forEach(device => {
+          const card = document.createElement("div");
+          card.className = `device ${selectedDevice && selectedDevice.id === device.id ? "active" : ""}`;
+          card.onclick = () => selectDevice(device);
+          card.innerHTML = `<strong><span class="status ${device.online ? "online" : ""}"></span>${escapeHtml(device.name)}</strong><br><span class="muted">${escapeHtml(device.hostname || device.id)} - ${device.online ? "online" : "offline"}</span>`;
+          container.appendChild(card);
+          if (selectedDevice && selectedDevice.id === device.id) selectedDevice = device;
+        });
+      } catch (error) {
+        console.warn(error);
+      }
+    }
+
+    function selectDevice(device) {
+      if (!selectedDevice || selectedDevice.id !== device.id) stopLiveControl();
+      selectedDevice = device;
+      document.getElementById("selected-title").textContent = device.name;
+      document.getElementById("selected-meta").textContent = `${device.online ? "Online" : "Offline"} - ${device.platform || "sin plataforma"} - ${device.hostname || device.id}`;
+      document.getElementById("tools").classList.remove("hidden");
+      refreshDevices();
+    }
+
+    function requireDevice() {
+      if (!selectedDevice) throw new Error("Selecciona un equipo primero.");
+      if (!selectedDevice.online) throw new Error("El equipo seleccionado esta desconectado.");
+      return selectedDevice;
+    }
+
+    async function runCommand() {
+      try {
+        const device = requireDevice();
+        const command = document.getElementById("command").value;
+        const output = document.getElementById("command-output");
+        output.textContent = "Ejecutando...";
+        const data = await api(`/api/devices/${device.id}/command`, { method: "POST", headers: authHeaders(), body: JSON.stringify({ command, timeout: 60 }) });
+        output.textContent = `Estado: ${data.status}\nCodigo: ${data.return_code}\n\nSTDOUT:\n${data.stdout || ""}\n\nSTDERR:\n${data.stderr || data.error || ""}`;
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function takeScreenshot() {
+      try {
+        const device = requireDevice();
+        const data = await api(`/api/devices/${device.id}/screenshot`, { method: "POST", headers: authHeaders(), body: JSON.stringify({ quality: 75 }) });
+        if (data.status !== "ok") throw new Error(data.error || "No se pudo tomar captura.");
+        const image = document.getElementById("screenshot");
+        image.src = `data:${data.mime_type};base64,${data.image_base64}`;
+        image.classList.remove("hidden");
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function startLiveControl() {
+      try {
+        const device = requireDevice();
+        stopLiveControl();
+        const scheme = location.protocol === "https:" ? "wss" : "ws";
+        const url = `${scheme}://${location.host}/ws/control/${device.id}?token=${encodeURIComponent(token)}`;
+        controlSocket = new WebSocket(url);
+        setLiveStatus("Conectando vista en vivo...");
+
+        controlSocket.onopen = () => {
+          setLiveStatus("Vista en vivo conectada. Click sobre la pantalla para controlar.");
+          sendControlMessage({ type: "start_stream", fps: 8, quality: 65 });
+        };
+        controlSocket.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === "screen_frame" && message.status === "ok") {
+            liveFrameSize = { width: message.width, height: message.height };
+            const image = document.getElementById("live-screen");
+            image.src = `data:${message.mime_type};base64,${message.image_base64}`;
+            image.classList.remove("hidden");
+          } else if (message.type === "remote_control_status") {
+            setLiveStatus(message.message || `Estado remoto: ${message.status}`);
+          } else if (message.type === "error") {
+            setLiveStatus(message.message || "Error de control remoto.");
+          }
+        };
+        controlSocket.onclose = () => {
+          controlSocket = null;
+          setLiveStatus("Vista en vivo desconectada.");
+        };
+        controlSocket.onerror = () => setLiveStatus("Error en la conexion de vista en vivo.");
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function stopLiveControl(closeSocket = true) {
+      if (controlSocket) {
+        sendControlMessage({ type: "stop_stream" });
+        if (closeSocket) controlSocket.close();
+        controlSocket = null;
+      }
+    }
+
+    function setLiveStatus(text) {
+      document.getElementById("live-status").textContent = text;
+    }
+
+    function sendControlMessage(message) {
+      if (!controlSocket || controlSocket.readyState !== WebSocket.OPEN) return;
+      controlSocket.send(JSON.stringify(message));
+    }
+
+    async function toggleFullscreen() {
+      const viewer = document.getElementById("live-viewer");
+      const screen = document.getElementById("live-screen");
+      if (screen.classList.contains("hidden")) {
+        alert("Primero inicia la vista en vivo.");
+        return;
+      }
+
+      try {
+        if (!document.fullscreenElement) {
+          await viewer.requestFullscreen();
+          screen.focus();
+          setLiveStatus("Pantalla completa activa. Presiona Esc para salir.");
+        } else {
+          await document.exitFullscreen();
+          setLiveStatus("Vista en vivo conectada. Click sobre la pantalla para controlar.");
+        }
+      } catch (error) {
+        alert(`No se pudo cambiar pantalla completa: ${error.message}`);
+      }
+    }
+
+    function imagePoint(event) {
+      const image = document.getElementById("live-screen");
+      const rect = image.getBoundingClientRect();
+      const renderedRatio = rect.width / rect.height;
+      const frameRatio = liveFrameSize.width / liveFrameSize.height;
+      let contentWidth = rect.width;
+      let contentHeight = rect.height;
+      let offsetX = 0;
+      let offsetY = 0;
+      if (renderedRatio > frameRatio) {
+        contentWidth = rect.height * frameRatio;
+        offsetX = (rect.width - contentWidth) / 2;
+      } else {
+        contentHeight = rect.width / frameRatio;
+        offsetY = (rect.height - contentHeight) / 2;
+      }
+      const x = Math.max(0, Math.min(event.clientX - rect.left - offsetX, contentWidth));
+      const y = Math.max(0, Math.min(event.clientY - rect.top - offsetY, contentHeight));
+      return {
+        x: Math.round((x / contentWidth) * liveFrameSize.width),
+        y: Math.round((y / contentHeight) * liveFrameSize.height),
+        frame_width: liveFrameSize.width,
+        frame_height: liveFrameSize.height
+      };
+    }
+
+    function sendMouse(action, event, extra = {}) {
+      if (!controlSocket || controlSocket.readyState !== WebSocket.OPEN) return;
+      const point = imagePoint(event);
+      sendControlMessage({ type: "mouse_event", action, ...point, ...extra });
+    }
+
+    function keyboardPayload(event) {
+      const modifiers = [];
+      if (event.ctrlKey) modifiers.push("ctrl");
+      if (event.altKey) modifiers.push("alt");
+      if (event.shiftKey && event.key.length !== 1) modifiers.push("shift");
+      if (event.metaKey) modifiers.push("meta");
+
+      if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        return { type: "keyboard_event", action: "text", text: event.key };
+      }
+      return { type: "keyboard_event", action: "key_press", key: event.key, modifiers };
+    }
+
+    async function listFiles() {
+      try {
+        const device = requireDevice();
+        const path = encodeURIComponent(document.getElementById("file-path").value || ".");
+        const data = await api(`/api/devices/${device.id}/files?path=${path}`, { headers: authHeaders() });
+        if (data.status !== "ok") throw new Error(data.error || "No se pudo listar.");
+        renderFiles(data.entries || []);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function renderFiles(entries) {
+      const container = document.getElementById("files-table");
+      const rows = entries.map(entry => `<tr><td>${entry.is_dir ? "dir" : "file"}</td><td>${escapeHtml(entry.name)}</td><td>${entry.size}</td><td><button class="secondary" onclick="downloadFile('${encodeURIComponent(entry.path)}')" ${entry.is_dir ? "disabled" : ""}>Descargar</button></td></tr>`).join("");
+      container.innerHTML = `<table><thead><tr><th>Tipo</th><th>Nombre</th><th>Tamano</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    async function downloadFile(encodedPath) {
+      try {
+        const device = requireDevice();
+        const data = await api(`/api/devices/${device.id}/files/download?path=${encodedPath}`, { headers: authHeaders() });
+        if (data.status !== "ok") throw new Error(data.error || "No se pudo descargar.");
+        const bytes = Uint8Array.from(atob(data.content_base64), char => char.charCodeAt(0));
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(new Blob([bytes]));
+        link.download = data.filename;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function uploadFile() {
+      try {
+        const device = requireDevice();
+        const file = document.getElementById("upload-file").files[0];
+        const path = document.getElementById("upload-path").value;
+        if (!file || !path) return alert("Selecciona archivo y ruta remota.");
+        const content = await fileToBase64(file);
+        const data = await api(`/api/devices/${device.id}/files/upload`, { method: "POST", headers: authHeaders(), body: JSON.stringify({ path, content_base64: content, overwrite: true }) });
+        if (data.status !== "ok") throw new Error(data.error || "No se pudo subir.");
+        alert(`Subido: ${data.path}`);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function showTool(name) {
+      ["terminal", "screen", "files"].forEach(tool => {
+        document.getElementById(`tool-${tool}`).classList.toggle("hidden", tool !== name);
+      });
+    }
+
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;" }[char]));
+    }
+
+    if (token) setSession(token, username || "usuario");
+
+    document.addEventListener("fullscreenchange", () => {
+      const screen = document.getElementById("live-screen");
+      if (!document.fullscreenElement && controlSocket) {
+        setLiveStatus("Vista en vivo conectada. Click sobre la pantalla para controlar.");
+      }
+      if (document.fullscreenElement) screen.focus();
+    });
+
+    const liveScreen = document.getElementById("live-screen");
+    liveScreen.addEventListener("click", event => {
+      liveScreen.focus();
+      sendMouse("click", event, { button: "left" });
+    });
+    liveScreen.addEventListener("dblclick", event => sendMouse("double_click", event, { button: "left" }));
+    liveScreen.addEventListener("contextmenu", event => {
+      event.preventDefault();
+      liveScreen.focus();
+      sendMouse("click", event, { button: "right" });
+    });
+    liveScreen.addEventListener("mousemove", event => {
+      const now = Date.now();
+      if (now - lastMouseMoveAt < 80) return;
+      lastMouseMoveAt = now;
+      sendMouse("move", event);
+    });
+    liveScreen.addEventListener("wheel", event => {
+      event.preventDefault();
+      sendMouse("scroll", event, { delta: event.deltaY > 0 ? -5 : 5 });
+    });
+    liveScreen.addEventListener("keydown", event => {
+      if (!controlSocket || controlSocket.readyState !== WebSocket.OPEN) return;
+      event.preventDefault();
+      sendControlMessage(keyboardPayload(event));
+    });
+  </script>
+</body>
+</html>

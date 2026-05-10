@@ -1,205 +1,132 @@
 #!/usr/bin/env python3
-"""
-Connection Manager - Handles multiple WebSocket connections from devices
-"""
+"""WebSocket connection manager for AM-Connect agents."""
 
-import json
-import logging
-from typing import Dict, Set, Optional
+from __future__ import annotations
+
+import asyncio
+from uuid import uuid4
+
 from fastapi import WebSocket
 
-logger = logging.getLogger(__name__)
+
+class DeviceOfflineError(RuntimeError):
+    """Raised when an API request targets an offline device."""
+
+
+class AgentRequestTimeout(RuntimeError):
+    """Raised when an agent does not answer a request in time."""
 
 
 class ConnectionManager:
-    """
-    Manages WebSocket connections for multiple devices
-    Handles broadcasting, targeted messaging, and connection tracking
-    """
-    
-    def __init__(self):
-        # Store active connections
-        self.active_connections: Dict[str, WebSocket] = {}
-        # Store connection metadata
-        self.connection_metadata: Dict[str, dict] = {}
-    
-    async def connect(self, websocket: WebSocket, device_id: str) -> None:
-        """
-        Register a new device connection
-        
-        Args:
-            websocket: WebSocket connection
-            device_id: Unique device identifier
-        """
+    def __init__(self) -> None:
+        self._devices: dict[str, WebSocket] = {}
+        self._device_send_locks: dict[str, asyncio.Lock] = {}
+        self._controllers: dict[str, set[WebSocket]] = {}
+        self._pending: dict[str, asyncio.Future[dict]] = {}
+        self._pending_devices: dict[str, str] = {}
+        self._lock = asyncio.Lock()
+
+    async def connect_device(self, device_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        async with self._lock:
+            previous = self._devices.get(device_id)
+            if previous is not None:
+                await previous.close(code=4000, reason="New connection opened for this device")
+            self._devices[device_id] = websocket
+            self._device_send_locks[device_id] = asyncio.Lock()
+
+    async def disconnect_device(self, device_id: str) -> None:
+        async with self._lock:
+            current = self._devices.pop(device_id, None)
+            self._device_send_locks.pop(device_id, None)
+        if current is not None:
+            for request_id, future in list(self._pending.items()):
+                if self._pending_devices.get(request_id) != device_id:
+                    continue
+                if not future.done():
+                    future.set_exception(DeviceOfflineError(f"Device {device_id} disconnected"))
+                self._pending.pop(request_id, None)
+                self._pending_devices.pop(request_id, None)
+
+            for controller in list(self._controllers.get(device_id, set())):
+                await controller.close(code=4001, reason="Device disconnected")
+            self._controllers.pop(device_id, None)
+
+    async def connect_controller(self, device_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        async with self._lock:
+            self._controllers.setdefault(device_id, set()).add(websocket)
+
+    async def disconnect_controller(self, device_id: str, websocket: WebSocket) -> None:
+        async with self._lock:
+            controllers = self._controllers.get(device_id)
+            if not controllers:
+                return
+            controllers.discard(websocket)
+            if not controllers:
+                self._controllers.pop(device_id, None)
+
+    def is_online(self, device_id: str) -> bool:
+        return device_id in self._devices
+
+    def online_device_ids(self) -> set[str]:
+        return set(self._devices.keys())
+
+    def controller_count(self, device_id: str) -> int:
+        return len(self._controllers.get(device_id, set()))
+
+    async def send_request(self, device_id: str, payload: dict, timeout: int) -> dict:
+        websocket = self._devices.get(device_id)
+        if websocket is None:
+            raise DeviceOfflineError("El equipo esta desconectado.")
+
+        request_id = f"req_{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[dict] = loop.create_future()
+        self._pending[request_id] = future
+        self._pending_devices[request_id] = device_id
+
+        message = {"request_id": request_id, **payload}
         try:
-            await websocket.accept()
-            self.active_connections[device_id] = websocket
-            logger.info(f"Device {device_id} connected")
-        except Exception as e:
-            logger.error(f"Error connecting device {device_id}: {e}")
-            raise
-    
-    def disconnect(self, device_id: str) -> None:
-        """
-        Unregister a device connection
-        
-        Args:
-            device_id: Unique device identifier
-        """
-        if device_id in self.active_connections:
-            del self.active_connections[device_id]
-            if device_id in self.connection_metadata:
-                del self.connection_metadata[device_id]
-            logger.info(f"Device {device_id} disconnected")
-    
-    async def send_to(self, device_id: str, message: dict) -> bool:
-        """
-        Send message to specific device
-        
-        Args:
-            device_id: Target device ID
-            message: Message dictionary
-        
-        Returns:
-            True if message sent successfully
-        """
-        if device_id not in self.active_connections:
-            logger.warning(f"Device {device_id} not connected")
-            return False
-        
-        try:
-            websocket = self.active_connections[device_id]
-            await websocket.send_json(message)
-            logger.debug(f"Message sent to {device_id}: {message.get('type')}")
-            return True
-        except Exception as e:
-            logger.error(f"Error sending message to {device_id}: {e}")
-            self.disconnect(device_id)
-            return False
-    
-    async def broadcast(self, message: dict, exclude: Optional[Set[str]] = None) -> int:
-        """
-        Broadcast message to all connected devices
-        
-        Args:
-            message: Message dictionary
-            exclude: Set of device IDs to exclude
-        
-        Returns:
-            Number of successful broadcasts
-        """
-        exclude = exclude or set()
-        success_count = 0
-        
-        disconnected = []
-        
-        for device_id, websocket in list(self.active_connections.items()):
-            if device_id in exclude:
-                continue
-            
-            try:
+            async with self._device_send_locks.setdefault(device_id, asyncio.Lock()):
                 await websocket.send_json(message)
-                success_count += 1
-            except Exception as e:
-                logger.error(f"Error broadcasting to {device_id}: {e}")
-                disconnected.append(device_id)
-        
-        # Clean up disconnected devices
-        for device_id in disconnected:
-            self.disconnect(device_id)
-        
-        logger.debug(f"Broadcast sent to {success_count} devices")
-        return success_count
-    
-    async def broadcast_to_group(self, device_ids: Set[str], message: dict) -> int:
-        """
-        Broadcast message to specific group of devices
-        
-        Args:
-            device_ids: Set of target device IDs
-            message: Message dictionary
-        
-        Returns:
-            Number of successful broadcasts
-        """
-        success_count = 0
-        disconnected = []
-        
-        for device_id in device_ids:
-            if device_id not in self.active_connections:
-                continue
-            
+            return await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            raise AgentRequestTimeout("El equipo no respondio a tiempo.") from exc
+        finally:
+            self._pending.pop(request_id, None)
+            self._pending_devices.pop(request_id, None)
+
+    async def send_event(self, device_id: str, payload: dict) -> None:
+        websocket = self._devices.get(device_id)
+        if websocket is None:
+            raise DeviceOfflineError("El equipo esta desconectado.")
+        async with self._device_send_locks.setdefault(device_id, asyncio.Lock()):
+            await websocket.send_json(payload)
+
+    async def broadcast_to_controllers(self, device_id: str, message: dict) -> int:
+        controllers = list(self._controllers.get(device_id, set()))
+        sent = 0
+        disconnected: list[WebSocket] = []
+        for controller in controllers:
             try:
-                websocket = self.active_connections[device_id]
-                await websocket.send_json(message)
-                success_count += 1
-            except Exception as e:
-                logger.error(f"Error sending to {device_id}: {e}")
-                disconnected.append(device_id)
-        
-        # Clean up disconnected devices
-        for device_id in disconnected:
-            self.disconnect(device_id)
-        
-        return success_count
-    
-    def get_connected_devices(self) -> list:
-        """
-        Get list of connected device IDs
-        
-        Returns:
-            List of device IDs
-        """
-        return list(self.active_connections.keys())
-    
-    def get_connection_count(self) -> int:
-        """
-        Get number of connected devices
-        
-        Returns:
-            Number of active connections
-        """
-        return len(self.active_connections)
-    
-    def is_connected(self, device_id: str) -> bool:
-        """
-        Check if device is connected
-        
-        Args:
-            device_id: Device ID to check
-        
-        Returns:
-            True if device is connected
-        """
-        return device_id in self.active_connections
-    
-    def set_metadata(self, device_id: str, key: str, value: any) -> None:
-        """
-        Store metadata for a device
-        
-        Args:
-            device_id: Device ID
-            key: Metadata key
-            value: Metadata value
-        """
-        if device_id not in self.connection_metadata:
-            self.connection_metadata[device_id] = {}
-        
-        self.connection_metadata[device_id][key] = value
-    
-    def get_metadata(self, device_id: str, key: str, default=None) -> any:
-        """
-        Retrieve metadata for a device
-        
-        Args:
-            device_id: Device ID
-            key: Metadata key
-            default: Default value if key doesn't exist
-        
-        Returns:
-            Metadata value or default
-        """
-        if device_id not in self.connection_metadata:
-            return default
-        
-        return self.connection_metadata[device_id].get(key, default)
+                await controller.send_json(message)
+                sent += 1
+            except Exception:
+                disconnected.append(controller)
+
+        for controller in disconnected:
+            await self.disconnect_controller(device_id, controller)
+        return sent
+
+    def resolve_agent_message(self, message: dict) -> bool:
+        request_id = message.get("request_id")
+        if not request_id:
+            return False
+
+        future = self._pending.get(request_id)
+        if future is None or future.done():
+            return False
+
+        future.set_result(message)
+        return True

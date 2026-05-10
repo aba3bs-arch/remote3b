@@ -1,39 +1,14 @@
-# Backend
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
-aiofiles==23.2.1
-
-# Security
-PyJWT==2.8.1
-bcrypt==4.1.1
-python-jose[cryptography]==3.3.0
-pycryptodome==3.19.0
-pyotp==2.9.0
-qrcode==7.4.2
-pillow==10.1.0
-
-# Database
-sqlalchemy==2.0.23
-sqlite3-python==1.0.0
-
-# Screen capture and video
-mss==9.0.1
-Pillow==10.1.0
-opencv-python==4.8.1.78
-screenshot==2.3
-
-# System info
-psutil==5.9.6
-
-# Utils
-python-dotenv==1.0.0
-requests==2.31.0
-aiohttp==3.9.1
-asyncio-contextmanager==1.0.0
-
-# Development
-pytest==7.4.3
-pytest-asyncio==0.21.1
-black==23.12.0
-flake8==6.1.0
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+bcrypt
+PyJWT
+aiohttp
+psutil
+mss
+Pillow
+pyautogui
+httpx
+pytest
+pytest-asyncio
