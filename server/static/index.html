@@ -96,6 +96,7 @@
         <label>Nombre del nuevo equipo</label>
         <input id="new-device-name" placeholder="PC oficina">
         <button onclick="createDevice()">Registrar equipo</button>
+        <button class="secondary" onclick="createLinkCode()">Generar codigo de enlace</button>
         <pre id="enrollment" class="hidden"></pre>
         <h3>En linea</h3>
         <div id="devices" class="devices"></div>
@@ -220,6 +221,15 @@
       enrollment.classList.remove("hidden");
       enrollment.textContent = `Equipo: ${data.device_id}\nSecreto: ${data.device_secret}\n\nComando local del agente:\n${data.agent_command}\n\n${data.note}`;
       await refreshDevices();
+    }
+
+    async function createLinkCode() {
+      const name = document.getElementById("new-device-name").value.trim();
+      if (!name) return alert("Escribe un nombre para el equipo.");
+      const data = await api("/api/devices/link-code", { method: "POST", headers: authHeaders(), body: JSON.stringify({ name }) });
+      const enrollment = document.getElementById("enrollment");
+      enrollment.classList.remove("hidden");
+      enrollment.textContent = `Codigo de enlace: ${data.code}\nVence en: ${data.expires_in_minutes} minutos\n\nEn la PC remota ejecuta el agente con este codigo.\n\nComando PowerShell:\n${data.agent_command}\n\nPara acceso desatendido visible puedes usar:\n.\\scripts\\install_unattended_agent_windows.ps1\n\n${data.note}`;
     }
 
     async function refreshDevices() {

@@ -63,6 +63,26 @@ La primera vez usa **Crear primer usuario**. Despues entra con **Iniciar sesion*
 
 ## Registrar una PC remota
 
+### Opcion sencilla con codigo
+
+1. En el panel, escribe un nombre para la PC.
+2. Pulsa **Generar codigo de enlace**.
+3. En la PC remota autorizada, abre PowerShell dentro del proyecto.
+4. Ejecuta:
+
+```powershell
+.\scripts\link_pc_windows.ps1
+```
+
+El script pide:
+
+- URL del servidor, por ejemplo `ws://192.168.1.50:8000`
+- Codigo de enlace de 6 digitos
+
+El codigo vence por defecto en 15 minutos y se usa una sola vez. El agente canjea el codigo por `device_id` y `device_secret` automaticamente.
+
+### Opcion manual con secreto
+
 1. En el panel, crea un equipo con un nombre descriptivo.
 2. Copia el `device_id` y `device_secret` que se muestran una sola vez.
 3. En la PC autorizada, ejecuta el agente visible:
@@ -95,8 +115,9 @@ AM-Connect no incluye acceso invisible. Por seguridad y cumplimiento, el agente 
 El acceso desatendido permite que una PC autorizada vuelva a conectarse sola cuando el usuario inicia sesion en Windows. No es invisible: abre una ventana visible del agente y la persona puede cerrarla.
 
 1. En el panel, registra el equipo y copia `device_id` y `device_secret`.
-2. En la PC remota autorizada, abre PowerShell dentro del proyecto.
-3. Ejecuta:
+2. Tambien puedes generar un **codigo de enlace** y usarlo en lugar de copiar `device_id` y `device_secret`.
+3. En la PC remota autorizada, abre PowerShell dentro del proyecto.
+4. Ejecuta:
 
 ```powershell
 .\scripts\install_unattended_agent_windows.ps1
@@ -105,8 +126,9 @@ El acceso desatendido permite que una PC autorizada vuelva a conectarse sola cua
 El script pedira:
 
 - URL del servidor, por ejemplo `ws://192.168.1.50:8000`
-- `device_id`
-- `device_secret`
+- Codigo de enlace, o `device_id` + `device_secret`
+
+Si usas codigo de enlace, el primer arranque del agente lo canjea automaticamente y guarda el secreto final para siguientes reinicios.
 
 Para probarlo sin reiniciar:
 
@@ -136,6 +158,7 @@ Limitaciones:
 
 - Autenticacion JWT con usuario y contrasena.
 - Creacion del primer administrador y bloqueo de registros posteriores por defecto.
+- Enlace sencillo de PCs con codigo temporal de 6 digitos.
 - SQLite persistente para usuarios, equipos y auditoria basica.
 - Equipos en linea mediante WebSocket autenticado con secreto de dispositivo.
 - Pantalla en vivo por WebSocket con frames JPEG.
@@ -157,6 +180,7 @@ ENABLE_COMMAND_EXECUTION=true
 ENABLE_FILE_TRANSFER=true
 ENABLE_SCREENSHOTS=true
 ENABLE_REMOTE_CONTROL=true
+LINK_CODE_EXPIRE_MINUTES=15
 ```
 
 Para usar HTTPS/WSS, genera certificados y activa:
@@ -172,6 +196,8 @@ SSL_KEY=certs/key.pem
 - `POST /api/auth/bootstrap` crea el primer usuario.
 - `POST /api/auth/login` inicia sesion.
 - `POST /api/devices` registra un nuevo equipo.
+- `POST /api/devices/link-code` genera un codigo temporal para enlazar una PC.
+- `POST /api/agents/link` canjea el codigo desde el agente remoto.
 - `GET /api/devices` lista equipos y estado online.
 - `POST /api/devices/{device_id}/command` ejecuta un comando.
 - `POST /api/devices/{device_id}/screenshot` solicita una captura.

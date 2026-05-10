@@ -26,6 +26,14 @@ class DeviceCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
 
 
+class AgentLinkRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=20)
+    device_name: str | None = Field(default=None, max_length=80)
+    platform: str | None = Field(default=None, max_length=200)
+    hostname: str | None = Field(default=None, max_length=200)
+    agent_version: str | None = Field(default=None, max_length=50)
+
+
 class CommandRequest(BaseModel):
     command: str = Field(..., min_length=1, max_length=4000)
     timeout: int = Field(default=30, ge=1, le=300)

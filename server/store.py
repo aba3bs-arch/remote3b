@@ -52,6 +52,18 @@ class Store:
                     FOREIGN KEY(owner_user_id) REFERENCES users(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS link_codes (
+                    code TEXT PRIMARY KEY,
+                    owner_user_id TEXT NOT NULL,
+                    requested_name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used_at TEXT,
+                    used_device_id TEXT,
+                    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+                    FOREIGN KEY(used_device_id) REFERENCES devices(id)
+                );
+
                 CREATE TABLE IF NOT EXISTS audit_events (
                     id TEXT PRIMARY KEY,
                     user_id TEXT,
@@ -132,6 +144,42 @@ class Store:
             "hostname": None,
             "agent_version": None,
         }
+
+    def create_link_code(self, code: str, owner_user_id: str, requested_name: str, expires_at: str) -> dict[str, Any]:
+        created_at = utc_now()
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO link_codes (code, owner_user_id, requested_name, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (code, owner_user_id, requested_name, created_at, expires_at),
+            )
+        return {
+            "code": code,
+            "owner_user_id": owner_user_id,
+            "requested_name": requested_name,
+            "created_at": created_at,
+            "expires_at": expires_at,
+            "used_at": None,
+            "used_device_id": None,
+        }
+
+    def get_link_code(self, code: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM link_codes WHERE code = ?", (code,)).fetchone()
+            return self._row_to_dict(row)
+
+    def mark_link_code_used(self, code: str, device_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                """
+                UPDATE link_codes
+                SET used_at = ?, used_device_id = ?
+                WHERE code = ?
+                """,
+                (utc_now(), device_id, code),
+            )
 
     def get_device(self, device_id: str) -> dict[str, Any] | None:
         with self._connect() as db:

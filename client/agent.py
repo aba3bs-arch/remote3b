@@ -442,11 +442,77 @@ def require_env(name: str) -> str:
     return value
 
 
+def http_url(server_url: str) -> str:
+    if server_url.startswith("ws://"):
+        return "http://" + server_url.removeprefix("ws://")
+    if server_url.startswith("wss://"):
+        return "https://" + server_url.removeprefix("wss://")
+    return server_url
+
+
+def update_config_file(config_path: str, values: dict[str, Any]) -> None:
+    path = Path(config_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current: dict[str, Any] = {}
+    if path.exists():
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            current = {}
+    current.update(values)
+    current.pop("link_code", None)
+    path.write_text(json.dumps(current, indent=2), encoding="utf-8")
+
+
+async def link_with_code(server_url: str, link_code: str, verify_ssl: bool) -> tuple[str, str]:
+    connector = aiohttp.TCPConnector(ssl=verify_ssl)
+    payload = {
+        "code": link_code,
+        "device_name": platform.node() or "AM-Connect PC",
+        "platform": platform.platform(),
+        "hostname": platform.node(),
+        "agent_version": AGENT_VERSION,
+    }
+    async with aiohttp.ClientSession(connector=connector) as session:
+        response = await session.post(f"{http_url(server_url).rstrip('/')}/api/agents/link", json=payload)
+        data = await response.json()
+        if response.status >= 400:
+            raise RuntimeError(data.get("message") or data.get("detail") or "No se pudo enlazar el equipo.")
+
+    config_path = os.getenv("AM_CONNECT_CONFIG_PATH")
+    if config_path:
+        update_config_file(
+            config_path,
+            {
+                "server_url": server_url,
+                "device_id": data["device_id"],
+                "device_secret": data["device_secret"],
+                "verify_ssl": verify_ssl,
+            },
+        )
+        logger.info("Linked device config saved to %s", config_path)
+
+    return data["device_id"], data["device_secret"]
+
+
 def main() -> None:
     server_url = os.getenv("AM_CONNECT_SERVER_URL", os.getenv("SERVER_URL", "ws://localhost:8000"))
-    device_id = require_env("AM_CONNECT_DEVICE_ID")
-    device_secret = require_env("AM_CONNECT_DEVICE_SECRET")
+    device_id = os.getenv("AM_CONNECT_DEVICE_ID")
+    device_secret = os.getenv("AM_CONNECT_DEVICE_SECRET")
+    link_code = os.getenv("AM_CONNECT_LINK_CODE")
     verify_ssl = os.getenv("AM_CONNECT_VERIFY_SSL", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+    if (not device_id or not device_secret) and link_code:
+        logger.info("Linking this PC with AM-Connect code %s", link_code)
+        try:
+            device_id, device_secret = asyncio.run(link_with_code(server_url, link_code, verify_ssl))
+        except Exception as exc:
+            logger.error("Unable to link this PC: %s", exc)
+            sys.exit(1)
+
+    if not device_id or not device_secret:
+        logger.error("Set AM_CONNECT_DEVICE_ID/AM_CONNECT_DEVICE_SECRET or AM_CONNECT_LINK_CODE.")
+        sys.exit(1)
 
     print("AM-Connect agent is visible and active for authorized remote support.")
     print("Close this terminal or press Ctrl+C to stop remote access.")

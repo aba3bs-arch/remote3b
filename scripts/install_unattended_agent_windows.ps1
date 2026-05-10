@@ -1,5 +1,6 @@
 param(
     [string]$ServerUrl,
+    [string]$LinkCode,
     [string]$DeviceId,
     [string]$DeviceSecret,
     [bool]$VerifySsl = $true
@@ -22,15 +23,21 @@ Write-Host ""
 if (!$ServerUrl) {
     $ServerUrl = Read-Host "URL del servidor WebSocket (ejemplo: ws://192.168.1.50:8000)"
 }
-if (!$DeviceId) {
-    $DeviceId = Read-Host "Device ID del panel (ejemplo: dev_xxx)"
-}
-if (!$DeviceSecret) {
-    $DeviceSecret = Read-Host "Device secret del panel"
+if (!$LinkCode -and (!$DeviceId -or !$DeviceSecret)) {
+    $LinkCode = Read-Host "Codigo de enlace del panel (deja vacio si usaras Device ID/secret)"
 }
 
-if (!$ServerUrl -or !$DeviceId -or !$DeviceSecret) {
-    Write-Host "ServerUrl, DeviceId y DeviceSecret son obligatorios." -ForegroundColor Red
+if (!$LinkCode) {
+    if (!$DeviceId) {
+        $DeviceId = Read-Host "Device ID del panel (ejemplo: dev_xxx)"
+    }
+    if (!$DeviceSecret) {
+        $DeviceSecret = Read-Host "Device secret del panel"
+    }
+}
+
+if (!$ServerUrl -or (!$LinkCode -and (!$DeviceId -or !$DeviceSecret))) {
+    Write-Host "ServerUrl y LinkCode, o ServerUrl con DeviceId/DeviceSecret, son obligatorios." -ForegroundColor Red
     exit 1
 }
 
@@ -43,14 +50,18 @@ New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
 
 $Config = [ordered]@{
     server_url = $ServerUrl
-    device_id = $DeviceId
-    device_secret = $DeviceSecret
     verify_ssl = $VerifySsl
     allow_commands = $true
     allow_file_transfer = $true
     allow_screenshots = $true
     allow_remote_control = $true
     installed_at = (Get-Date).ToString("o")
+}
+if ($LinkCode) {
+    $Config.link_code = $LinkCode.Replace("-", "")
+} else {
+    $Config.device_id = $DeviceId
+    $Config.device_secret = $DeviceSecret
 }
 
 $Config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8

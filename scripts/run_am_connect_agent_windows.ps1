@@ -31,8 +31,16 @@ Write-Host "Verificando dependencias..." -ForegroundColor Yellow
 & $VenvPython -m pip install -r (Join-Path $RepoRoot "requirements.txt")
 
 $env:AM_CONNECT_SERVER_URL = $Config.server_url
-$env:AM_CONNECT_DEVICE_ID = $Config.device_id
-$env:AM_CONNECT_DEVICE_SECRET = $Config.device_secret
+$env:AM_CONNECT_CONFIG_PATH = $ConfigPath
+if ($Config.device_id) {
+    $env:AM_CONNECT_DEVICE_ID = $Config.device_id
+}
+if ($Config.device_secret) {
+    $env:AM_CONNECT_DEVICE_SECRET = $Config.device_secret
+}
+if ($Config.link_code) {
+    $env:AM_CONNECT_LINK_CODE = $Config.link_code
+}
 $env:AM_CONNECT_VERIFY_SSL = if ($Config.verify_ssl) { "true" } else { "false" }
 $env:AM_CONNECT_ALLOW_COMMANDS = if ($Config.allow_commands) { "true" } else { "false" }
 $env:AM_CONNECT_ALLOW_FILE_TRANSFER = if ($Config.allow_file_transfer) { "true" } else { "false" }
@@ -41,7 +49,11 @@ $env:AM_CONNECT_ALLOW_REMOTE_CONTROL = if ($Config.allow_remote_control) { "true
 
 Write-Host ""
 Write-Host "AM-Connect desatendido visible esta activo." -ForegroundColor Green
-Write-Host "Equipo: $($Config.device_id)" -ForegroundColor Green
+if ($Config.device_id) {
+    Write-Host "Equipo: $($Config.device_id)" -ForegroundColor Green
+} else {
+    Write-Host "Equipo: se enlazara con codigo $($Config.link_code)" -ForegroundColor Green
+}
 Write-Host "Servidor: $($Config.server_url)" -ForegroundColor Green
 Write-Host "Cierra esta ventana para detener el acceso remoto." -ForegroundColor Yellow
 Write-Host ""

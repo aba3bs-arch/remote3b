@@ -62,6 +62,7 @@ class Settings:
     enable_remote_control: bool = _bool_env("ENABLE_REMOTE_CONTROL", True)
     request_timeout_seconds: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "45"))
     max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+    link_code_expire_minutes: int = int(os.getenv("LINK_CODE_EXPIRE_MINUTES", "15"))
 
 
 settings = Settings()

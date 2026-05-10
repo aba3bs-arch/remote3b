@@ -10,6 +10,8 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+import secrets
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -22,6 +24,7 @@ try:
     from .config import settings
     from .connection_manager import AgentRequestTimeout, ConnectionManager, DeviceOfflineError
     from .models import (
+        AgentLinkRequest,
         BootstrapRequest,
         CommandRequest,
         DeviceCreateRequest,
@@ -47,6 +50,7 @@ except ImportError:  # pragma: no cover - allows running python server/main.py
     from config import settings
     from connection_manager import AgentRequestTimeout, ConnectionManager, DeviceOfflineError
     from models import (
+        AgentLinkRequest,
         BootstrapRequest,
         CommandRequest,
         DeviceCreateRequest,
@@ -139,6 +143,23 @@ async def ask_agent(device_id: str, payload: dict, timeout: int | None = None) -
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc)) from exc
 
 
+def public_server_ws_url() -> str:
+    scheme = "wss" if settings.use_ssl else "ws"
+    host = "localhost" if settings.host in {"0.0.0.0", "::"} else settings.host
+    return f"{scheme}://{host}:{settings.port}"
+
+
+def make_link_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_request, exc: HTTPException):
     return JSONResponse(
@@ -208,6 +229,65 @@ async def create_device(payload: DeviceCreateRequest, user: Annotated[dict, Depe
             f"AM_CONNECT_DEVICE_SECRET={secret} python client/agent.py"
         ),
         "note": "Guarda este secreto ahora; no se vuelve a mostrar.",
+    }
+
+
+@app.post("/api/devices/link-code")
+async def create_device_link_code(payload: DeviceCreateRequest, user: Annotated[dict, Depends(current_user)]):
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.link_code_expire_minutes)
+    for _ in range(10):
+        code = make_link_code()
+        if store.get_link_code(code) is None:
+            break
+    else:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No se pudo generar codigo.")
+
+    link_code = store.create_link_code(code, user["id"], payload.name, expires_at.isoformat())
+    store.log_event("device.link_code.create", user_id=user["id"], detail=payload.name)
+    return {
+        "code": link_code["code"],
+        "name": payload.name,
+        "expires_at": link_code["expires_at"],
+        "expires_in_minutes": settings.link_code_expire_minutes,
+        "agent_command": (
+            f"$env:AM_CONNECT_SERVER_URL=\"{public_server_ws_url()}\"; "
+            f"$env:AM_CONNECT_LINK_CODE=\"{link_code['code']}\"; "
+            ".\\venv\\Scripts\\python.exe client\\agent.py"
+        ),
+        "note": "Este codigo se usa una sola vez y vence automaticamente.",
+    }
+
+
+@app.post("/api/agents/link")
+async def link_agent(payload: AgentLinkRequest):
+    code = payload.code.strip().replace("-", "")
+    link_code = store.get_link_code(code)
+    if link_code is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Codigo de enlace invalido.")
+    if link_code.get("used_at"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Codigo de enlace ya usado.")
+    if parse_utc(link_code["expires_at"]) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Codigo de enlace vencido.")
+
+    device_name = payload.device_name or payload.hostname or link_code["requested_name"]
+    secret = new_device_secret()
+    device = store.create_device(link_code["owner_user_id"], device_name, hash_device_secret(secret))
+    store.update_device_metadata(
+        device["id"],
+        {
+            "platform": payload.platform,
+            "hostname": payload.hostname,
+            "agent_version": payload.agent_version,
+        },
+    )
+    store.mark_link_code_used(code, device["id"])
+    store.log_event("device.link_code.redeem", user_id=link_code["owner_user_id"], device_id=device["id"], detail=code)
+    return {
+        "device_id": device["id"],
+        "device_secret": secret,
+        "device_name": device_name,
+        "server_url": public_server_ws_url(),
+        "message": "Equipo enlazado correctamente.",
     }
 
 
