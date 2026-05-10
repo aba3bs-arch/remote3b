@@ -1,6 +1,6 @@
-# 🔐 Remote3B - Professional RAT with TLS, 2FA and Video Recording
+# 🔐 AM-CONNECT - Authorized Remote Access for 3B
 
-**Remote3B** is a professional Remote Access Tool designed for total control of multiple devices with enterprise-grade security features.
+**AM-CONNECT** is an authorized remote access platform for exclusive 3B use, designed to manage approved devices with enterprise-grade security features.
 
 ## ✨ Key Features
 
@@ -37,7 +37,7 @@
 ## 🏗️ Architecture
 
 ```
-Remote3B/
+AM-CONNECT/
 ├── server/                 # FastAPI Backend
 │   ├── main.py            # Main server
 │   ├── security.py        # Security module (TLS, JWT, 2FA)
@@ -111,7 +111,7 @@ and an optional API token field to load real devices from `GET /api/devices`.
 Starting a connection opens `/session`, a remote-view shell with a collapsible operator
 toolbar that is local to the control panel and not part of the remote screen content.
 The session view can request real screenshots from the authorized agent, download remote
-files, upload files into the agent's configured Remote3B uploads folder, and show admin
+files, upload files into the agent's configured AM-CONNECT uploads folder, and show admin
 metrics/audit events for the authenticated user.
 
 ## 🔐 Security Features
@@ -306,7 +306,7 @@ MIT License - See LICENSE.md
 
 ## ⚠️ Legal Notice
 
-**Remote3B** is a professional remote access tool. Should only be used:
+**AM-CONNECT** is an authorized 3B remote access tool. Should only be used:
 
 - ✅ With explicit consent of the device owner
 - ✅ For legitimate administration and maintenance purposes

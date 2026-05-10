@@ -1,4 +1,5 @@
 const params = new URLSearchParams(window.location.search);
+const TOKEN_STORAGE_KEY = "am_connect_api_token";
 const deviceId = params.get("device");
 const deviceName = params.get("name") || params.get("device") || "Equipo conectado";
 const initialPanel = params.get("panel");
@@ -37,7 +38,7 @@ deviceNameLabel.textContent = deviceName;
 remoteTabTitle.textContent = deviceName;
 
 function authHeaders() {
-  const token = window.localStorage.getItem("remote3b_api_token");
+  const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -171,7 +172,7 @@ function downloadBase64File(transfer) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = transfer.filename || "remote3b-download";
+  link.download = transfer.filename || "am-connect-download";
   link.click();
   URL.revokeObjectURL(url);
 }

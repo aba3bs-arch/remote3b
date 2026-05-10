@@ -73,6 +73,8 @@ const sampleDevices = [
   },
 ];
 
+const TOKEN_STORAGE_KEY = "am_connect_api_token";
+
 const state = {
   devices: [],
   selectedId: null,
@@ -166,7 +168,7 @@ function normalizeApiDevice(device) {
 }
 
 async function apiRequest(url, options = {}) {
-  const token = window.localStorage.getItem("remote3b_api_token");
+  const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
   const headers = {
     ...(options.headers || {}),
   };
@@ -299,7 +301,7 @@ function openRemoteSession(device) {
 }
 
 async function loadDevicesFromApi() {
-  const token = window.localStorage.getItem("remote3b_api_token");
+  const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
   if (!token) {
     state.devices = sampleDevices;
     state.usingApi = false;
@@ -384,7 +386,7 @@ async function loginWithCredentials() {
       throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
     }
 
-    window.localStorage.setItem("remote3b_api_token", payload.access_token);
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, payload.access_token);
     tokenInput.value = payload.access_token;
     passwordInput.value = "";
     totpInput.value = "";
@@ -435,7 +437,7 @@ function exportDevices() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "remote3b-computadoras.csv";
+  link.download = "am-connect-computadoras.csv";
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -446,7 +448,7 @@ searchInput.addEventListener("input", (event) => {
 });
 
 tokenButton.addEventListener("click", () => {
-  tokenInput.value = window.localStorage.getItem("remote3b_api_token") || "";
+  tokenInput.value = window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
   tokenDialog.showModal();
 });
 
@@ -456,9 +458,9 @@ registerButton.addEventListener("click", registerUser);
 saveTokenButton.addEventListener("click", () => {
   const token = tokenInput.value.trim();
   if (token) {
-    window.localStorage.setItem("remote3b_api_token", token);
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
   } else {
-    window.localStorage.removeItem("remote3b_api_token");
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
   }
   tokenDialog.close();
   loadDevicesFromApi();

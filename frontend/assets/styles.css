@@ -58,7 +58,7 @@ button {
 
 .brand {
   display: flex;
-  min-width: 140px;
+  min-width: 150px;
   align-items: center;
   font-weight: 700;
 }
@@ -81,6 +81,7 @@ button {
   color: #dff2ff;
   border-left: 1px solid rgba(255, 255, 255, 0.28);
   font-size: 12px;
+  font-weight: 700;
   line-height: 40px;
 }
 
@@ -90,17 +91,6 @@ button {
   padding: 6px 10px;
   font-weight: 700;
   font-size: 12px;
-}
-
-.top-action.secondary {
-  margin-left: 0;
-  color: #fff;
-  background: transparent;
-}
-
-.top-action.upgrade {
-  color: #fff;
-  background: #f34f5f;
 }
 
 .top-action.primary {
@@ -631,9 +621,5 @@ dialog::backdrop {
     min-height: 50px;
     height: auto;
     padding-block: 8px;
-  }
-
-  .top-action.secondary {
-    margin-left: 0;
   }
 }

@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Remote3B Installation Script
+# AM-CONNECT Installation Script
 # Installs all dependencies and configures the application
 
 set -e
 
 echo "======================================"
-echo "  Remote3B - Installation Script"
+echo "  AM-CONNECT - Installation Script"
 echo "======================================"
 echo ""
 

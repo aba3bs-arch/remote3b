@@ -29,7 +29,7 @@ class Config:
     SSL_KEY = os.getenv('SSL_KEY', 'certs/key.pem')
     
     # Database
-    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./remote3b.db')
+    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./am_connect.db')
     
     # Video recording
     RECORDING_FPS = int(os.getenv('RECORDING_FPS', 30))

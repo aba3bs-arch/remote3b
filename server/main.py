@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote3B Server - Professional RAT Backend
+AM-CONNECT Server - authorized remote access backend
 Handles multiple device connections via WebSocket with TLS encryption and JWT authentication
 """
 
@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Remote3B Server",
-    description="Professional Remote Access Tool with TLS, 2FA and Video Recording",
+    title="AM-CONNECT Server",
+    description="Authorized remote access for 3B with TLS, 2FA and video recording",
     version="1.0.0"
 )
 
@@ -525,7 +525,7 @@ async def request_file_upload(
     payload: FileUploadPayload = Body(...),
     authorization: str = Header(None)
 ):
-    """Upload a file to the authorized device's configured Remote3B uploads folder."""
+    """Upload a file to the authorized device's configured AM-CONNECT uploads folder."""
     user_id = _require_device_access(device_id, authorization)
 
     if device_id not in connection_manager.active_connections:
@@ -652,7 +652,7 @@ if __name__ == "__main__":
             logger.warning("Run 'python generate_certs.py' to generate them")
             use_ssl = False
     
-    logger.info(f"Starting Remote3B Server on {host}:{port}")
+    logger.info(f"Starting AM-CONNECT Server on {host}:{port}")
     logger.info(f"SSL/TLS: {'Enabled' if use_ssl else 'Disabled'}")
     logger.info(f"Dashboard: http://localhost:3000")
     

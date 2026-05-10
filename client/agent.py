@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote3B Client Agent - Remote device client
+AM-CONNECT Client Agent - authorized remote device client
 Connects to server and executes commands, captures screen, transfers files, etc.
 """
 
@@ -292,7 +292,7 @@ class RemoteAgent:
 
     async def _handle_file_upload(self, message: Dict) -> None:
         """
-        Save an uploaded file into the configured Remote3B uploads folder.
+        Save an uploaded file into the configured AM-CONNECT uploads folder.
 
         The server sends only a filename, not an absolute destination path, so
         uploads cannot overwrite arbitrary files on the remote device.
@@ -300,7 +300,7 @@ class RemoteAgent:
         upload_id = message.get('upload_id')
         filename = Path(message.get('filename', 'upload.bin')).name
         content = message.get('content', '')
-        upload_dir = Path(os.getenv('REMOTE3B_UPLOAD_DIR', 'client/downloads')).resolve()
+        upload_dir = Path(os.getenv('AM_CONNECT_UPLOAD_DIR', 'client/downloads')).resolve()
 
         try:
             upload_dir.mkdir(parents=True, exist_ok=True)
@@ -398,7 +398,7 @@ async def main():
     # Initialize and run agent
     agent = RemoteAgent(server_url, device_id, device_name, device_token)
     
-    logger.info(f"Starting Remote3B Agent")
+    logger.info(f"Starting AM-CONNECT Agent")
     logger.info(f"  Device ID: {device_id}")
     logger.info(f"  Device Name: {device_name}")
     logger.info(f"  Server: {server_url}")
