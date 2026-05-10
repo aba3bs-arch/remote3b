@@ -90,6 +90,48 @@ La PC remota debe tener el agente abierto y visible. En algunos sistemas operati
 
 AM-Connect no incluye acceso invisible. Por seguridad y cumplimiento, el agente debe estar visible para la persona que recibe soporte y puede cerrarse con Ctrl+C.
 
+## Acceso desatendido visible en Windows
+
+El acceso desatendido permite que una PC autorizada vuelva a conectarse sola cuando el usuario inicia sesion en Windows. No es invisible: abre una ventana visible del agente y la persona puede cerrarla.
+
+1. En el panel, registra el equipo y copia `device_id` y `device_secret`.
+2. En la PC remota autorizada, abre PowerShell dentro del proyecto.
+3. Ejecuta:
+
+```powershell
+.\scripts\install_unattended_agent_windows.ps1
+```
+
+El script pedira:
+
+- URL del servidor, por ejemplo `ws://192.168.1.50:8000`
+- `device_id`
+- `device_secret`
+
+Para probarlo sin reiniciar:
+
+```powershell
+.\scripts\run_am_connect_agent_windows.ps1
+```
+
+Para quitar el auto-inicio:
+
+```powershell
+.\scripts\uninstall_unattended_agent_windows.ps1
+```
+
+Para quitar auto-inicio y borrar el secreto guardado:
+
+```powershell
+.\scripts\uninstall_unattended_agent_windows.ps1 -RemoveConfig
+```
+
+Limitaciones:
+
+- Inicia al iniciar sesion de Windows, no antes de la pantalla de login.
+- La captura/control puede requerir permisos del sistema operativo.
+- El `device_secret` queda guardado en `%APPDATA%\AM-Connect\agent-config.json`; protege esa cuenta de Windows.
+
 ## Funciones actuales
 
 - Autenticacion JWT con usuario y contrasena.
@@ -104,6 +146,7 @@ AM-Connect no incluye acceso invisible. Por seguridad y cumplimiento, el agente 
 - Listado, descarga y subida de archivos.
 - Flags para deshabilitar comandos, archivos o capturas desde `.env`.
 - Acceso remoto visible por diseno; no hay modo oculto/invisible.
+- Acceso desatendido visible por auto-inicio al iniciar sesion de Windows.
 
 ## Configuracion importante
 
