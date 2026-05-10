@@ -96,6 +96,19 @@ const tokenDialog = document.querySelector("#tokenDialog");
 const tokenButton = document.querySelector("#tokenButton");
 const tokenInput = document.querySelector("#tokenInput");
 const saveTokenButton = document.querySelector("#saveTokenButton");
+const usernameInput = document.querySelector("#usernameInput");
+const passwordInput = document.querySelector("#passwordInput");
+const emailInput = document.querySelector("#emailInput");
+const totpInput = document.querySelector("#totpInput");
+const loginButton = document.querySelector("#loginButton");
+const registerButton = document.querySelector("#registerButton");
+const authMessage = document.querySelector("#authMessage");
+const authState = document.querySelector("#authState");
+const adminTotal = document.querySelector("#adminTotal");
+const adminOnline = document.querySelector("#adminOnline");
+const adminScreens = document.querySelector("#adminScreens");
+const adminTransfers = document.querySelector("#adminTransfers");
+const auditEvents = document.querySelector("#auditEvents");
 const exportButton = document.querySelector("#exportButton");
 
 function statusLabel(device) {
@@ -150,6 +163,28 @@ function normalizeApiDevice(device) {
     in_session: Boolean(device.in_session),
     last_seen: device.last_seen || device.created_at,
   };
+}
+
+async function apiRequest(url, options = {}) {
+  const token = window.localStorage.getItem("remote3b_api_token");
+  const headers = {
+    ...(options.headers || {}),
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
+  }
+  return payload;
 }
 
 function filteredDevices() {
@@ -269,33 +304,120 @@ async function loadDevicesFromApi() {
     state.devices = sampleDevices;
     state.usingApi = false;
     dataSource.textContent = "Mostrando datos de ejemplo. Guarda un token para cargar tu API.";
+    authState.textContent = "Sin autenticacion visual. Inicia sesion para ver equipos reales, auditoria y transferencias.";
+    renderAdminSummary(null);
     render();
     return;
   }
 
   try {
-    const response = await fetch("/api/devices", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const payload = await response.json();
+    const payload = await apiRequest("/api/devices");
     state.devices = (payload.devices || []).map(normalizeApiDevice);
     state.usingApi = true;
     dataSource.textContent = `Mostrando ${state.devices.length} equipos desde la API.`;
+    authState.textContent = "Sesion activa. Panel administrativo sincronizado con la API.";
+    await loadAdminSummary();
   } catch (error) {
     state.devices = sampleDevices;
     state.usingApi = false;
     dataSource.textContent = `No se pudo cargar la API (${error.message}). Mostrando datos de ejemplo.`;
+    authState.textContent = `No se pudo cargar la API (${error.message}).`;
+    renderAdminSummary(null);
   }
 
   state.selectedId = state.devices[0]?.device_id || null;
   render();
+}
+
+function renderAdminSummary(summary) {
+  adminTotal.textContent = summary?.total_devices ?? 0;
+  adminOnline.textContent = summary?.online_devices ?? 0;
+  adminScreens.textContent = summary?.stored_screenshots ?? 0;
+  adminTransfers.textContent = summary?.file_transfers ?? 0;
+
+  auditEvents.innerHTML = "";
+  const events = summary?.recent_events || [];
+  if (events.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "Sin eventos recientes.";
+    auditEvents.appendChild(item);
+    return;
+  }
+
+  events.forEach((event) => {
+    const item = document.createElement("li");
+    item.textContent = `${event.timestamp} · ${event.action}${event.device_id ? ` · ${event.device_id}` : ""}`;
+    auditEvents.appendChild(item);
+  });
+}
+
+async function loadAdminSummary() {
+  try {
+    const payload = await apiRequest("/api/admin/summary");
+    renderAdminSummary(payload.summary);
+  } catch (error) {
+    renderAdminSummary(null);
+    authState.textContent = `No se pudo cargar administracion (${error.message}).`;
+  }
+}
+
+async function loginWithCredentials() {
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value;
+  const totp = totpInput.value.trim();
+
+  if (!username || !password) {
+    authMessage.textContent = "Escribe usuario y contrasena.";
+    return;
+  }
+
+  const params = new URLSearchParams({ username, password });
+  if (totp) {
+    params.set("totp_code", totp);
+  }
+
+  authMessage.textContent = "Autenticando...";
+  try {
+    const response = await fetch(`/api/auth/login?${params.toString()}`, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
+    }
+
+    window.localStorage.setItem("remote3b_api_token", payload.access_token);
+    tokenInput.value = payload.access_token;
+    passwordInput.value = "";
+    totpInput.value = "";
+    authMessage.textContent = `Sesion iniciada como ${payload.user.username}.`;
+    await loadDevicesFromApi();
+  } catch (error) {
+    authMessage.textContent = `Error de autenticacion: ${error.message}`;
+  }
+}
+
+async function registerUser() {
+  const username = usernameInput.value.trim();
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+
+  if (!username || !email || !password) {
+    authMessage.textContent = "Para crear usuario escribe usuario, email y contrasena.";
+    return;
+  }
+
+  const params = new URLSearchParams({ username, email, password });
+  authMessage.textContent = "Creando usuario...";
+  try {
+    const response = await fetch(`/api/auth/register?${params.toString()}`, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
+    }
+
+    authMessage.textContent = `Usuario ${payload.username} creado. Ahora inicia sesion.`;
+  } catch (error) {
+    authMessage.textContent = `No se pudo crear usuario: ${error.message}`;
+  }
 }
 
 function exportDevices() {
@@ -328,6 +450,9 @@ tokenButton.addEventListener("click", () => {
   tokenDialog.showModal();
 });
 
+loginButton.addEventListener("click", loginWithCredentials);
+registerButton.addEventListener("click", registerUser);
+
 saveTokenButton.addEventListener("click", () => {
   const token = tokenInput.value.trim();
   if (token) {
@@ -347,11 +472,19 @@ connectButton.addEventListener("click", () => {
 });
 
 filesButton.addEventListener("click", () => {
-  window.alert("El modulo de archivos usara el mismo token autorizado de la API cuando se habiliten sus endpoints.");
+  const device = state.devices.find((item) => item.device_id === state.selectedId);
+  if (device) {
+    const query = new URLSearchParams({
+      device: device.device_id,
+      name: device.device_name,
+      panel: "files",
+    });
+    window.location.assign(`/session?${query.toString()}`);
+  }
 });
 
 auditButton.addEventListener("click", () => {
-  window.alert("Los eventos de auditoria quedan asociados al usuario autenticado y al equipo seleccionado.");
+  loadAdminSummary();
 });
 
 exportButton.addEventListener("click", exportDevices);

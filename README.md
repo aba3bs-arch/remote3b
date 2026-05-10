@@ -110,6 +110,9 @@ The dashboard includes a RemotePC-style computer list, search, export, connectio
 and an optional API token field to load real devices from `GET /api/devices`.
 Starting a connection opens `/session`, a remote-view shell with a collapsible operator
 toolbar that is local to the control panel and not part of the remote screen content.
+The session view can request real screenshots from the authorized agent, download remote
+files, upload files into the agent's configured Remote3B uploads folder, and show admin
+metrics/audit events for the authenticated user.
 
 ## 🔐 Security Features
 

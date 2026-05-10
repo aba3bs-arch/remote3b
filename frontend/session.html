@@ -13,9 +13,9 @@
           <div class="browser-tabs">
             <span class="browser-dot"></span>
             <span class="browser-dot"></span>
-            <span class="tab-title">Usuario</span>
+            <span class="tab-title" id="remoteTabTitle">Usuario</span>
           </div>
-          <div class="remote-app">
+          <div class="remote-app" id="remotePlaceholder">
             <div class="remote-sidebar"></div>
             <div class="remote-content">
               <div class="remote-header"></div>
@@ -27,6 +27,8 @@
               </div>
             </div>
           </div>
+          <img id="screenImage" class="screen-image" alt="Captura de pantalla remota" hidden />
+          <div id="screenStatus" class="screen-status">Esperando captura autorizada...</div>
         </div>
       </section>
 
@@ -41,19 +43,19 @@
           </div>
 
           <div class="toolbar-actions" aria-label="Herramientas de sesion">
-            <button type="button" title="Monitor remoto">PC</button>
+            <button id="refreshScreenButton" type="button" title="Actualizar pantalla">PC</button>
             <button type="button" title="Informacion">i</button>
             <button type="button" title="Audio">Vol</button>
             <button type="button" title="Pantalla completa">Full</button>
-            <button type="button" title="Video">Vid</button>
+            <button id="liveToggleButton" type="button" title="Activar visor en vivo">Live</button>
             <button type="button" title="Chat">Chat</button>
             <button type="button" title="Anotar">Pen</button>
             <button type="button" title="Zoom">Zoom</button>
             <button type="button" title="Captura">Cam</button>
-            <button type="button" title="Archivos">File</button>
+            <button id="filePanelButton" type="button" title="Archivos">File</button>
             <button type="button" title="Teclado">Keys</button>
             <button type="button" title="Vista">View</button>
-            <button type="button" title="Ayuda">?</button>
+            <button id="adminPanelButton" type="button" title="Administracion">Admin</button>
           </div>
 
           <button class="collapse-button" id="collapseButton" type="button" aria-expanded="true">
@@ -75,6 +77,38 @@
 
       <aside class="operator-note">
         Esta barra pertenece al panel del operador. No se dibuja dentro de la pantalla remota.
+      </aside>
+
+      <aside class="local-panel" id="filePanel" hidden>
+        <header>
+          <h2>Transferencia de archivos</h2>
+          <button class="panel-close" data-close-panel="filePanel" type="button">Cerrar</button>
+        </header>
+        <label>
+          Ruta remota para descargar
+          <input id="downloadPathInput" type="text" placeholder="/home/usuario/documento.txt" />
+        </label>
+        <button id="downloadFileButton" class="panel-primary" type="button">Solicitar descarga</button>
+        <label>
+          Subir archivo al equipo
+          <input id="uploadFileInput" type="file" />
+        </label>
+        <button id="uploadFileButton" class="panel-primary" type="button">Subir a carpeta Remote3B</button>
+        <p id="fileTransferStatus" class="panel-status">Las transferencias requieren token valido y equipo online.</p>
+      </aside>
+
+      <aside class="local-panel admin-local-panel" id="adminPanel" hidden>
+        <header>
+          <h2>Administracion</h2>
+          <button class="panel-close" data-close-panel="adminPanel" type="button">Cerrar</button>
+        </header>
+        <div class="admin-session-metrics">
+          <span>Total <strong id="sessionAdminTotal">0</strong></span>
+          <span>Online <strong id="sessionAdminOnline">0</strong></span>
+          <span>Capturas <strong id="sessionAdminScreens">0</strong></span>
+          <span>Transferencias <strong id="sessionAdminTransfers">0</strong></span>
+        </div>
+        <ul id="sessionAuditEvents" class="session-audit-events"></ul>
       </aside>
     </main>
 

@@ -84,6 +84,20 @@
           </div>
         </section>
 
+        <section class="admin-panel" aria-labelledby="adminPanelTitle">
+          <div>
+            <h2 id="adminPanelTitle">Panel de administracion</h2>
+            <p id="authState" class="muted">Sin autenticacion visual. Inicia sesion para ver equipos reales, auditoria y transferencias.</p>
+          </div>
+          <div class="admin-metrics">
+            <span>Total <strong id="adminTotal">0</strong></span>
+            <span>Online <strong id="adminOnline">0</strong></span>
+            <span>Capturas <strong id="adminScreens">0</strong></span>
+            <span>Transferencias <strong id="adminTransfers">0</strong></span>
+          </div>
+          <ul id="auditEvents" class="audit-events"></ul>
+        </section>
+
         <section class="details-grid" aria-label="Detalle del equipo seleccionado">
           <article class="detail-card">
             <h3 id="selectedName">Selecciona un equipo</h3>
@@ -108,10 +122,31 @@
 
     <dialog id="tokenDialog">
       <form method="dialog" class="dialog-card">
-        <h2>Token de API</h2>
-        <p class="muted">Pega un token Bearer de un usuario autorizado para cargar equipos reales desde <code>/api/devices</code>.</p>
+        <h2>Autenticacion visual</h2>
+        <p class="muted">Inicia sesion para obtener un token Bearer o pegalo manualmente si ya lo tienes.</p>
+        <div class="auth-grid">
+          <label>
+            Usuario
+            <input id="usernameInput" type="text" autocomplete="username" placeholder="admin" />
+          </label>
+          <label>
+            Contrasena
+            <input id="passwordInput" type="password" autocomplete="current-password" placeholder="••••••••••••" />
+          </label>
+          <label>
+            Email para registro
+            <input id="emailInput" type="email" autocomplete="email" placeholder="admin@example.com" />
+          </label>
+          <label>
+            Codigo 2FA opcional
+            <input id="totpInput" type="text" inputmode="numeric" placeholder="123456" />
+          </label>
+          <button id="registerButton" class="outline-button" type="button">Crear usuario</button>
+          <button id="loginButton" class="primary-action" type="button">Iniciar sesion</button>
+        </div>
+        <p id="authMessage" class="muted"></p>
         <label>
-          Token
+          Token Bearer
           <textarea id="tokenInput" rows="4" placeholder="eyJ..."></textarea>
         </label>
         <div class="dialog-actions">

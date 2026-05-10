@@ -48,6 +48,7 @@ button {
 }
 
 .browser-frame {
+  position: relative;
   display: grid;
   height: 100vh;
   grid-template-rows: 34px 1fr;
@@ -84,6 +85,28 @@ button {
   grid-template-columns: 172px 1fr;
   min-height: 0;
   background: #fff;
+}
+
+.screen-image {
+  position: absolute;
+  inset: 34px 0 0;
+  width: 100%;
+  height: calc(100% - 34px);
+  object-fit: contain;
+  background: #000;
+}
+
+.screen-status {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  max-width: 420px;
+  padding: 9px 12px;
+  color: #dbefff;
+  background: rgba(7, 30, 52, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  font-size: 12px;
 }
 
 .remote-sidebar {
@@ -273,6 +296,111 @@ button {
   background: rgba(7, 30, 52, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
+  font-size: 12px;
+}
+
+.local-panel {
+  position: fixed;
+  top: 54px;
+  right: 18px;
+  z-index: 18;
+  display: grid;
+  width: min(360px, calc(100vw - 36px));
+  gap: 12px;
+  padding: 14px;
+  color: #203040;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #b8d5ea;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32);
+}
+
+.local-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.local-panel h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.local-panel label {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.local-panel input {
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid #cbd8e2;
+  border-radius: 6px;
+}
+
+.panel-close {
+  color: #1477c4;
+  background: transparent;
+  border: 0;
+  font-weight: 700;
+}
+
+.panel-primary {
+  min-height: 34px;
+  color: #fff;
+  background: var(--toolbar-blue);
+  border: 0;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.panel-status {
+  margin: 0;
+  color: #5e7080;
+  font-size: 12px;
+}
+
+.admin-session-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-session-metrics span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  background: #f3f8fc;
+  border: 1px solid #d7e5f0;
+  border-radius: 6px;
+  color: #5e7080;
+  font-size: 12px;
+}
+
+.admin-session-metrics strong {
+  color: #203040;
+}
+
+.session-audit-events {
+  display: grid;
+  gap: 5px;
+  max-height: 160px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.session-audit-events li {
+  padding: 7px 8px;
+  background: #fff;
+  border: 1px solid #d7e5f0;
+  border-radius: 6px;
+  color: #5e7080;
   font-size: 12px;
 }
 

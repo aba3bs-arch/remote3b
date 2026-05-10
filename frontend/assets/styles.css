@@ -233,7 +233,8 @@ h3 {
 }
 
 .search-box input,
-textarea {
+textarea,
+.dialog-card input {
   width: 100%;
   height: 100%;
   padding: 0 15px;
@@ -449,6 +450,64 @@ tbody tr.selected {
   background: #fbfcfd;
 }
 
+.admin-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(380px, 1.2fr);
+  gap: 10px 18px;
+  padding: 12px;
+  background: #fbfcfd;
+  border-top: 1px solid var(--border);
+}
+
+.admin-panel h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.admin-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-metrics span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  padding: 7px 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-metrics strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.audit-events {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  max-height: 84px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.audit-events li {
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .detail-card {
   padding: 12px;
   border-right: 1px solid var(--border);
@@ -507,6 +566,34 @@ dialog::backdrop {
   font-weight: 700;
 }
 
+.dialog-card input {
+  height: auto;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.dialog-card textarea {
+  height: auto;
+  min-height: 90px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.auth-grid label:nth-child(3) {
+  grid-column: span 1;
+}
+
+.auth-grid button {
+  align-self: end;
+}
+
 .dialog-actions {
   justify-content: flex-end;
 }
@@ -525,7 +612,17 @@ dialog::backdrop {
   }
 
   .page-toolbar,
-  .details-grid {
+  .details-grid,
+  .admin-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-events {
+    grid-column: auto;
+  }
+
+  .admin-metrics,
+  .auth-grid {
     grid-template-columns: 1fr;
   }
 
