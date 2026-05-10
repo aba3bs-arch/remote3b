@@ -121,6 +121,12 @@ See [DEPLOYMENT_RENDER_NETLIFY.md](DEPLOYMENT_RENDER_NETLIFY.md) for the full se
 including `AM_CONNECT_API_BASE_URL`, Render environment variables, and the remote
 agent `wss://.../ws` URL.
 
+## 🖥️ Install agents on Windows computers
+
+Use [INSTALL_AGENT_WINDOWS.md](INSTALL_AGENT_WINDOWS.md) for a copy/paste PowerShell
+installer that configures `SERVER_URL`, `DEVICE_ID`, `DEVICE_TOKEN`, dependencies,
+and optional visible startup shortcut for authorized machines.
+
 ## 🔐 Security Features
 
 ### TLS Encryption
