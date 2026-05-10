@@ -1,5 +1,6 @@
 const params = new URLSearchParams(window.location.search);
 const TOKEN_STORAGE_KEY = "am_connect_api_token";
+const API_BASE_URL = (window.AM_CONNECT_CONFIG?.apiBaseUrl || "").replace(/\/$/, "");
 const deviceId = params.get("device");
 const deviceName = params.get("name") || params.get("device") || "Equipo conectado";
 const initialPanel = params.get("panel");
@@ -43,7 +44,7 @@ function authHeaders() {
 }
 
 async function apiRequest(url, options = {}) {
-  const response = await fetch(url, {
+  const response = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers: {
       ...authHeaders(),

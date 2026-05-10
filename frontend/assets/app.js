@@ -74,6 +74,7 @@ const sampleDevices = [
 ];
 
 const TOKEN_STORAGE_KEY = "am_connect_api_token";
+const API_BASE_URL = (window.AM_CONNECT_CONFIG?.apiBaseUrl || "").replace(/\/$/, "");
 
 const state = {
   devices: [],
@@ -177,7 +178,7 @@ async function apiRequest(url, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, {
+  const response = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers,
   });
@@ -380,7 +381,7 @@ async function loginWithCredentials() {
 
   authMessage.textContent = "Autenticando...";
   try {
-    const response = await fetch(`/api/auth/login?${params.toString()}`, { method: "POST" });
+    const response = await fetch(`${API_BASE_URL}/api/auth/login?${params.toString()}`, { method: "POST" });
     const payload = await response.json();
     if (!response.ok) {
       throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
@@ -410,7 +411,7 @@ async function registerUser() {
   const params = new URLSearchParams({ username, email, password });
   authMessage.textContent = "Creando usuario...";
   try {
-    const response = await fetch(`/api/auth/register?${params.toString()}`, { method: "POST" });
+    const response = await fetch(`${API_BASE_URL}/api/auth/register?${params.toString()}`, { method: "POST" });
     const payload = await response.json();
     if (!response.ok) {
       throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);

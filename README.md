@@ -114,6 +114,13 @@ The session view can request real screenshots from the authorized agent, downloa
 files, upload files into the agent's configured AM-CONNECT uploads folder, and show admin
 metrics/audit events for the authenticated user.
 
+## ☁️ Deploy on Render + Netlify
+
+Use Render for the FastAPI/WebSocket backend and Netlify for the static dashboard.
+See [DEPLOYMENT_RENDER_NETLIFY.md](DEPLOYMENT_RENDER_NETLIFY.md) for the full setup,
+including `AM_CONNECT_API_BASE_URL`, Render environment variables, and the remote
+agent `wss://.../ws` URL.
+
 ## 🔐 Security Features
 
 ### TLS Encryption
