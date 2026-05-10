@@ -99,3 +99,25 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\AM-CONNECT\agent\sta
 ## Important
 
 Only install the agent on computers owned by 3B or where you have explicit authorization from the owner.
+
+## Simplest installer
+
+For the shortest installation flow, use:
+
+```txt
+scripts/install_am_connect_simple.ps1
+```
+
+Download and run it:
+
+```powershell
+$installer = "$env:TEMP\install_am_connect_simple.ps1"
+Invoke-WebRequest `
+  -Uri "https://raw.githubusercontent.com/aba3bs-arch/remote3b/cursor/remote-access-dashboard-3dae/scripts/install_am_connect_simple.ps1" `
+  -OutFile $installer
+
+powershell -ExecutionPolicy Bypass -File $installer `
+  -ServerUrl "https://YOUR-RENDER-SERVICE.onrender.com" `
+  -DeviceId "device_001" `
+  -DeviceToken "TOKEN_FROM_AM_CONNECT"
+```
