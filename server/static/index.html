@@ -33,6 +33,26 @@
     img.screenshot { width: 100%; border-radius: 12px; border: 1px solid #334155; background: #020617; }
     .live-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
     .live-toolbar button { width: auto; margin-top: 0; }
+    .live-viewer {
+      background: #020617;
+      border-radius: 12px;
+    }
+    .live-viewer:fullscreen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100vw;
+      height: 100vh;
+      border-radius: 0;
+      padding: 0;
+    }
+    .live-viewer:fullscreen .live-screen {
+      width: 100vw;
+      height: 100vh;
+      min-height: 100vh;
+      border-radius: 0;
+      border: 0;
+    }
     .live-screen {
       width: 100%;
       min-height: 360px;
@@ -103,10 +123,13 @@
           <div class="live-toolbar">
             <button onclick="startLiveControl()">Iniciar en vivo</button>
             <button class="secondary" onclick="stopLiveControl()">Detener</button>
+            <button class="secondary" onclick="toggleFullscreen()">Pantalla completa</button>
             <button class="secondary" onclick="takeScreenshot()">Tomar captura</button>
           </div>
           <p id="live-status" class="muted">Haz click en la pantalla en vivo para enfocar teclado y mouse.</p>
-          <img id="live-screen" class="live-screen hidden" tabindex="0" alt="Pantalla remota en vivo">
+          <div id="live-viewer" class="live-viewer">
+            <img id="live-screen" class="live-screen hidden" tabindex="0" alt="Pantalla remota en vivo">
+          </div>
           <p class="muted">La vista en vivo y el control requieren permiso del sistema operativo en la PC remota.</p>
           <img id="screenshot" class="screenshot hidden" alt="Captura remota">
         </div>
@@ -312,6 +335,28 @@
       controlSocket.send(JSON.stringify(message));
     }
 
+    async function toggleFullscreen() {
+      const viewer = document.getElementById("live-viewer");
+      const screen = document.getElementById("live-screen");
+      if (screen.classList.contains("hidden")) {
+        alert("Primero inicia la vista en vivo.");
+        return;
+      }
+
+      try {
+        if (!document.fullscreenElement) {
+          await viewer.requestFullscreen();
+          screen.focus();
+          setLiveStatus("Pantalla completa activa. Presiona Esc para salir.");
+        } else {
+          await document.exitFullscreen();
+          setLiveStatus("Vista en vivo conectada. Click sobre la pantalla para controlar.");
+        }
+      } catch (error) {
+        alert(`No se pudo cambiar pantalla completa: ${error.message}`);
+      }
+    }
+
     function imagePoint(event) {
       const image = document.getElementById("live-screen");
       const rect = image.getBoundingClientRect();
@@ -426,6 +471,14 @@
     }
 
     if (token) setSession(token, username || "usuario");
+
+    document.addEventListener("fullscreenchange", () => {
+      const screen = document.getElementById("live-screen");
+      if (!document.fullscreenElement && controlSocket) {
+        setLiveStatus("Vista en vivo conectada. Click sobre la pantalla para controlar.");
+      }
+      if (document.fullscreenElement) screen.focus();
+    });
 
     const liveScreen = document.getElementById("live-screen");
     liveScreen.addEventListener("click", event => {

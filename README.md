@@ -83,9 +83,12 @@ Cuando el agente este conectado, el equipo aparecera en linea en el panel.
 2. Abre la pestana **Pantalla**.
 3. Pulsa **Iniciar en vivo**.
 4. Haz click sobre la imagen para enfocar el control.
-5. Mueve el mouse, haz click, usa la rueda o escribe con el teclado.
+5. Opcionalmente pulsa **Pantalla completa** para trabajar mas comodo.
+6. Mueve el mouse, haz click, usa la rueda o escribe con el teclado.
 
 La PC remota debe tener el agente abierto y visible. En algunos sistemas operativos la captura o el control de teclado/mouse requiere permisos de accesibilidad, grabacion de pantalla o control remoto.
+
+AM-Connect no incluye acceso invisible. Por seguridad y cumplimiento, el agente debe estar visible para la persona que recibe soporte y puede cerrarse con Ctrl+C.
 
 ## Funciones actuales
 
@@ -94,11 +97,13 @@ La PC remota debe tener el agente abierto y visible. En algunos sistemas operati
 - SQLite persistente para usuarios, equipos y auditoria basica.
 - Equipos en linea mediante WebSocket autenticado con secreto de dispositivo.
 - Pantalla en vivo por WebSocket con frames JPEG.
+- Modo pantalla completa para la vista en vivo.
 - Control de mouse y teclado desde el panel sobre la pantalla en vivo.
 - Ejecucion de comandos autorizada desde el panel.
 - Captura de pantalla bajo permisos del sistema operativo.
 - Listado, descarga y subida de archivos.
 - Flags para deshabilitar comandos, archivos o capturas desde `.env`.
+- Acceso remoto visible por diseno; no hay modo oculto/invisible.
 
 ## Configuracion importante
 
