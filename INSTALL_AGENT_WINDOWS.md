@@ -118,6 +118,18 @@ Invoke-WebRequest `
 
 powershell -ExecutionPolicy Bypass -File $installer `
   -ServerUrl "https://YOUR-RENDER-SERVICE.onrender.com" `
+  -AdminUsername "YOUR_ADMIN_USER" `
+  -AdminPassword "YOUR_ADMIN_PASSWORD"
+```
+
+The simple installer logs in, registers the computer, receives its `DeviceId`
+and `DeviceToken`, writes `.env`, installs dependencies, and starts the agent.
+
+If you already have a device token, manual mode still works:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File $installer `
+  -ServerUrl "https://YOUR-RENDER-SERVICE.onrender.com" `
   -DeviceId "device_001" `
   -DeviceToken "TOKEN_FROM_AM_CONNECT"
 ```

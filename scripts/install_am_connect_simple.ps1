@@ -6,18 +6,20 @@ Use only on 3B-owned computers or computers with explicit authorization.
 Example:
 powershell -ExecutionPolicy Bypass -File .\install_am_connect_simple.ps1 `
   -ServerUrl "https://YOUR-RENDER-SERVICE.onrender.com" `
-  -DeviceId "device_001" `
-  -DeviceToken "TOKEN_FROM_AM_CONNECT"
+  -AdminUsername "admin" `
+  -AdminPassword "your-password"
 #>
 
 param(
     [Parameter(Mandatory = $true)]
     [string]$ServerUrl,
 
-    [Parameter(Mandatory = $true)]
+    [string]$AdminUsername,
+
+    [string]$AdminPassword,
+
     [string]$DeviceId,
 
-    [Parameter(Mandatory = $true)]
     [string]$DeviceToken,
 
     [string]$DeviceName = $env:COMPUTERNAME
@@ -43,6 +45,48 @@ function Normalize-ServerUrl {
     return $Url
 }
 
+function Normalize-ApiUrl {
+    param([string]$Url)
+
+    $Url = $Url.Trim().TrimEnd("/")
+    $Url = $Url -replace "^wss://", "https://"
+    $Url = $Url -replace "^ws://", "http://"
+    $Url = $Url -replace "/ws$", ""
+
+    if ($Url -notmatch "^https?://") {
+        throw "ServerUrl debe iniciar con https://, http://, wss:// o ws://"
+    }
+
+    return $Url
+}
+
+function Encode-QueryValue {
+    param([string]$Value)
+    return [System.Uri]::EscapeDataString($Value)
+}
+
+function Invoke-AmConnectPost {
+    param(
+        [string]$Url,
+        [hashtable]$Query,
+        [hashtable]$Headers = @{}
+    )
+
+    $pairs = @()
+    foreach ($key in $Query.Keys) {
+        if ($null -ne $Query[$key] -and $Query[$key] -ne "") {
+            $pairs += "$(Encode-QueryValue $key)=$(Encode-QueryValue ([string]$Query[$key]))"
+        }
+    }
+
+    $requestUrl = $Url
+    if ($pairs.Count -gt 0) {
+        $requestUrl = "$Url?$($pairs -join '&')"
+    }
+
+    return Invoke-RestMethod -Method Post -Uri $requestUrl -Headers $Headers
+}
+
 function Get-Python {
     $python = Get-Command python -ErrorAction SilentlyContinue
     if ($python) {
@@ -62,11 +106,52 @@ $ZipUrl = "https://github.com/aba3bs-arch/remote3b/archive/refs/heads/cursor/rem
 $ZipFile = "$env:TEMP\am-connect-agent.zip"
 $ExtractDir = "$env:TEMP\am-connect-agent"
 $WsUrl = Normalize-ServerUrl $ServerUrl
+$ApiUrl = Normalize-ApiUrl $ServerUrl
 $Python = Get-Python
+
+if (-not $DeviceToken) {
+    if (-not $AdminUsername) {
+        $AdminUsername = Read-Host "Usuario admin AM-CONNECT"
+    }
+
+    if (-not $AdminPassword) {
+        $securePassword = Read-Host "Contrasena admin AM-CONNECT" -AsSecureString
+        $AdminPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+            [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+        )
+    }
+
+    Write-Host "Registrando esta computadora en AM-CONNECT..." -ForegroundColor Cyan
+    $login = Invoke-AmConnectPost `
+        -Url "$ApiUrl/api/auth/login" `
+        -Query @{ username = $AdminUsername; password = $AdminPassword }
+
+    $accessToken = $login.access_token
+    if (-not $accessToken) {
+        throw "No se pudo obtener access_token del servidor."
+    }
+
+    $registration = Invoke-AmConnectPost `
+        -Url "$ApiUrl/api/devices/register" `
+        -Query @{ device_name = $DeviceName; os = "Windows" } `
+        -Headers @{ Authorization = "Bearer $accessToken" }
+
+    $DeviceId = $registration.device_id
+    $DeviceToken = $registration.device_token
+
+    if (-not $DeviceId -or -not $DeviceToken) {
+        throw "El servidor no devolvio DeviceId/DeviceToken."
+    }
+}
+
+if (-not $DeviceId -or -not $DeviceToken) {
+    throw "Falta DeviceId o DeviceToken. Usa credenciales admin o provee ambos valores manualmente."
+}
 
 Write-Host "Instalando AM-CONNECT Agent..." -ForegroundColor Cyan
 Write-Host "Equipo: $DeviceName"
 Write-Host "Servidor: $WsUrl"
+Write-Host "Device ID: $DeviceId"
 Write-Host "Destino: $InstallDir"
 
 if (Test-Path $InstallDir) {
