@@ -183,6 +183,17 @@ async function apiRequest(url, options = {}) {
     headers,
   });
 
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await response.text();
+    if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      throw new Error(
+        "El frontend esta recibiendo HTML en vez de JSON. Configura AM_CONNECT_API_BASE_URL en Netlify con la URL de Render y redeploy."
+      );
+    }
+    throw new Error(`Respuesta inesperada del servidor (${contentType || "sin content-type"}).`);
+  }
+
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
@@ -381,11 +392,7 @@ async function loginWithCredentials() {
 
   authMessage.textContent = "Autenticando...";
   try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/login?${params.toString()}`, { method: "POST" });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
-    }
+    const payload = await apiRequest(`/api/auth/login?${params.toString()}`, { method: "POST" });
 
     window.localStorage.setItem(TOKEN_STORAGE_KEY, payload.access_token);
     tokenInput.value = payload.access_token;
@@ -411,11 +418,7 @@ async function registerUser() {
   const params = new URLSearchParams({ username, email, password });
   authMessage.textContent = "Creando usuario...";
   try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/register?${params.toString()}`, { method: "POST" });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
-    }
+    const payload = await apiRequest(`/api/auth/register?${params.toString()}`, { method: "POST" });
 
     authMessage.textContent = `Usuario ${payload.username} creado. Ahora inicia sesion.`;
   } catch (error) {
