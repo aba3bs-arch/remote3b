@@ -33,7 +33,7 @@ param(
 
     [string]$RepoUrl = "https://github.com/aba3bs-arch/remote3b.git",
 
-    [string]$Branch = "cursor/remote-access-dashboard-3dae",
+    [string]$Branch = "main",
 
     [switch]$StartNow,
 

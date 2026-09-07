@@ -14,16 +14,18 @@ from datetime import datetime
 from typing import Dict, Optional, Set
 from pathlib import Path
 
-from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, status
+from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import uvicorn
 from dotenv import load_dotenv
 
 from connection_manager import ConnectionManager
+from installer import build_windows_installer
 from security import SecurityManager
+from store import AppStore
 
 # Load environment variables
 load_dotenv()
@@ -53,11 +55,19 @@ app.add_middleware(
 )
 
 # Initialize managers
+DATA_DIR = Path(os.getenv("AM_CONNECT_DATA_DIR", str(Path(__file__).resolve().parent.parent / "data")))
+app_store = AppStore(DATA_DIR / "am_connect.json")
 connection_manager = ConnectionManager()
-security_manager = SecurityManager()
+security_manager = SecurityManager(store=app_store)
 
-# Store connected devices
+# Store connected devices (runtime overlay on persisted records)
 connected_devices: Dict[str, dict] = {}
+for saved_id, saved_device in app_store.devices().items():
+    connected_devices[saved_id] = {
+        **saved_device,
+        "is_online": False,
+        "in_session": False,
+    }
 latest_screenshots: Dict[str, dict] = {}
 file_transfers: Dict[str, dict] = {}
 audit_events = []
@@ -118,6 +128,61 @@ def _record_audit(action: str, user_id: str, device_id: Optional[str] = None, de
 
     # Keep the in-memory audit list bounded for long-running development sessions.
     del audit_events[:-100]
+
+
+def _persist_devices() -> None:
+    serializable = {}
+    for device_id, device in connected_devices.items():
+        serializable[device_id] = {
+            key: value
+            for key, value in device.items()
+            if key not in {"is_online", "in_session"}
+        }
+    app_store.data["devices"] = serializable
+    app_store.save()
+
+
+def _public_base_url(request: Optional[Request] = None) -> str:
+    configured = os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or ""
+    if configured:
+        return configured.rstrip("/")
+    if request is not None:
+        return str(request.base_url).rstrip("/")
+    return "http://localhost:8000"
+
+
+def _ws_base_url(request: Optional[Request] = None) -> str:
+    http_url = _public_base_url(request)
+    if http_url.startswith("https://"):
+        return "wss://" + http_url[len("https://"):] + "/ws"
+    if http_url.startswith("http://"):
+        return "ws://" + http_url[len("http://"):] + "/ws"
+    return http_url.rstrip("/") + "/ws"
+
+
+def _device_payload(device_id: str, device: dict) -> dict:
+    is_online = device_id in connection_manager.active_connections
+    connection_error = device.get("connection_error")
+    if not is_online and not device.get("last_seen"):
+        connection_error = connection_error or "Fallo de conexion"
+    elif not is_online and device.get("last_seen"):
+        connection_error = connection_error or "Fallo de conexion"
+    else:
+        connection_error = None
+
+    return {
+        "device_id": device_id,
+        "device_name": device.get("device_name") or device_id,
+        "os": device.get("os") or "Windows",
+        "user_id": device.get("user_id"),
+        "is_online": is_online,
+        "in_session": connection_manager.viewer_count(device_id) > 0,
+        "created_at": device.get("created_at"),
+        "last_seen": device.get("last_seen"),
+        "last_accessed": device.get("last_accessed"),
+        "connection_error": connection_error,
+        "install_code": device.get("install_code"),
+    }
 
 
 # ===== HEALTH CHECK =====
@@ -229,8 +294,9 @@ async def register_device(device_name: str, os: str, authorization: str = Header
     try:
         user_id = _current_user_id(authorization)
         
-        device_id = f"device_{len(connected_devices) + 1:03d}"
+        device_id = f"device_{secrets.token_hex(4)}"
         device_token = security_manager.create_device_token(device_id, user_id)
+        install_code = secrets.token_urlsafe(12)
         
         connected_devices[device_id] = {
             "device_name": device_name,
@@ -238,8 +304,18 @@ async def register_device(device_name: str, os: str, authorization: str = Header
             "user_id": user_id,
             "is_online": False,
             "created_at": datetime.now().isoformat(),
-            "last_seen": None
+            "last_seen": None,
+            "last_accessed": None,
+            "connection_error": "Fallo de conexion",
+            "install_code": install_code,
         }
+
+        app_store.install_codes()[install_code] = {
+            "device_id": device_id,
+            "user_id": user_id,
+            "created_at": datetime.now().isoformat(),
+        }
+        _persist_devices()
         
         logger.info(f"Device registered: {device_id}")
         _record_audit("device_registered", user_id, device_id, {"device_name": device_name, "os": os})
@@ -248,6 +324,7 @@ async def register_device(device_name: str, os: str, authorization: str = Header
             "status": "success",
             "device_id": device_id,
             "device_token": device_token,
+            "install_code": install_code,
             "message": "Device registered successfully"
         }
     except HTTPException:
@@ -264,14 +341,13 @@ async def list_devices(authorization: str = Header(None)):
         user_id = _current_user_id(authorization)
         
         devices = [
-            {
-                "device_id": dev_id,
-                **device_info,
-                "is_online": dev_id in connection_manager.active_connections
-            }
+            _device_payload(dev_id, device_info)
             for dev_id, device_info in connected_devices.items()
             if device_info['user_id'] == user_id
         ]
+        devices.sort(
+            key=lambda item: (item.get("device_name") or "").lower()
+        )
         
         return {
             "status": "success",
@@ -335,15 +411,17 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Option
         await connection_manager.connect(websocket, device_id)
         connected_devices[device_id]['is_online'] = True
         connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
+        connected_devices[device_id]['connection_error'] = None
+        _persist_devices()
         
         logger.info(f"Device connected: {device_id}")
         
-        # Broadcast device online status
-        await connection_manager.broadcast({
-            "type": "device_online",
-            "device_id": device_id,
-            "timestamp": datetime.now().isoformat()
-        })
+        if connection_manager.viewer_count(device_id) > 0:
+            await connection_manager.send_to(device_id, {
+                "type": "start_stream",
+                "quality": 55,
+                "timestamp": datetime.now().isoformat()
+            })
         
         # Handle incoming messages
         while True:
@@ -359,15 +437,19 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Option
                         "height": data.get('height'),
                         "timestamp": data.get('timestamp') or datetime.now().isoformat()
                     }
+                    await connection_manager.send_to_viewers(device_id, {
+                        "type": "screen_capture",
+                        "image": data.get('image'),
+                        "width": data.get('width'),
+                        "height": data.get('height'),
+                        "timestamp": latest_screenshots[device_id]["timestamp"],
+                    })
                 
                 elif data.get('type') == 'command_response':
-                    # Route to specific controller
-                    target = data.get('target')
-                    if target:
-                        await connection_manager.send_to(target, data)
+                    await connection_manager.send_to_viewers(device_id, data)
                 
                 elif data.get('type') == 'chat':
-                    await connection_manager.broadcast(data)
+                    await connection_manager.send_to_viewers(device_id, data)
                 
                 elif data.get('type') == 'file_transfer':
                     file_id = data.get('file_id') or data.get('upload_id')
@@ -377,6 +459,15 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Option
                             "device_id": device_id,
                             "received_at": datetime.now().isoformat()
                         }
+                    await connection_manager.send_to_viewers(device_id, data)
+
+                elif data.get('type') == 'heartbeat':
+                    connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
+                    connected_devices[device_id]['connection_error'] = None
+                
+                elif data.get('type') == 'agent_error':
+                    connected_devices[device_id]['connection_error'] = data.get('error') or 'Fallo de conexion'
+                    await connection_manager.send_to_viewers(device_id, data)
                 
                 logger.debug(f"Message from {device_id}: {data.get('type')}")
                 
@@ -386,13 +477,14 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Option
     
     except WebSocketDisconnect:
         connection_manager.disconnect(device_id)
-        connected_devices[device_id]['is_online'] = False
-        connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
+        if device_id in connected_devices:
+            connected_devices[device_id]['is_online'] = False
+            connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
+            connected_devices[device_id]['connection_error'] = "Fallo de conexion"
+            _persist_devices()
         
         logger.info(f"Device disconnected: {device_id}")
-        
-        # Broadcast device offline status
-        await connection_manager.broadcast({
+        await connection_manager.send_to_viewers(device_id, {
             "type": "device_offline",
             "device_id": device_id,
             "timestamp": datetime.now().isoformat()
@@ -401,7 +493,220 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Option
     except Exception as e:
         logger.error(f"WebSocket error for {device_id}: {e}")
         connection_manager.disconnect(device_id)
-        connected_devices[device_id]['is_online'] = False
+        if device_id in connected_devices:
+            connected_devices[device_id]['is_online'] = False
+            connected_devices[device_id]['connection_error'] = "Fallo de conexion"
+            _persist_devices()
+
+
+@app.websocket("/ws/session/{device_id}")
+async def session_viewer_socket(websocket: WebSocket, device_id: str, token: Optional[str] = None):
+    """WebSocket for an authorized operator viewing a store computer."""
+    try:
+        payload = security_manager.verify_token(token or "")
+        if payload.get("type") != "access":
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        user_id = payload.get("sub")
+        if device_id not in connected_devices or connected_devices[device_id]["user_id"] != user_id:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+    except ValueError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await connection_manager.add_viewer(websocket, device_id)
+    connected_devices[device_id]["last_accessed"] = datetime.now().isoformat()
+    connected_devices[device_id]["in_session"] = True
+    _persist_devices()
+    _record_audit("session_started", user_id, device_id)
+
+    if device_id in connection_manager.active_connections:
+        await connection_manager.send_to(device_id, {
+            "type": "start_stream",
+            "quality": 55,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    latest = latest_screenshots.get(device_id)
+    if latest:
+        await websocket.send_json({
+            "type": "screen_capture",
+            "image": latest.get("image"),
+            "width": latest.get("width"),
+            "height": latest.get("height"),
+            "timestamp": latest.get("timestamp"),
+        })
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
+            if msg_type == "input":
+                await connection_manager.send_to(device_id, {
+                    "type": "input",
+                    "event": data.get("event"),
+                    "x": data.get("x"),
+                    "y": data.get("y"),
+                    "button": data.get("button"),
+                    "key": data.get("key"),
+                    "dx": data.get("dx"),
+                    "dy": data.get("dy"),
+                })
+            elif msg_type == "screenshot":
+                await connection_manager.send_to(device_id, {
+                    "type": "screenshot",
+                    "request_id": data.get("request_id") or secrets.token_hex(8),
+                })
+            elif msg_type == "chat":
+                await connection_manager.send_to(device_id, data)
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.error(f"Viewer socket error for {device_id}: {exc}")
+    finally:
+        remaining = connection_manager.remove_viewer(websocket, device_id)
+        if remaining == 0:
+            connected_devices[device_id]["in_session"] = False
+            await connection_manager.send_to(device_id, {"type": "stop_stream"})
+            _persist_devices()
+
+
+class InputPayload(BaseModel):
+    event: str = Field(..., min_length=1, max_length=40)
+    x: Optional[float] = None
+    y: Optional[float] = None
+    button: Optional[str] = None
+    key: Optional[str] = None
+    dx: Optional[float] = None
+    dy: Optional[float] = None
+
+
+@app.post("/api/devices/{device_id}/input")
+async def send_input_event(
+    device_id: str,
+    payload: InputPayload,
+    authorization: str = Header(None)
+):
+    """Forward a mouse/keyboard event to an authorized online device."""
+    user_id = _require_device_access(device_id, authorization)
+    if device_id not in connection_manager.active_connections:
+        raise HTTPException(status_code=503, detail="Device is offline")
+
+    sent = await connection_manager.send_to(device_id, {
+        "type": "input",
+        "event": payload.event,
+        "x": payload.x,
+        "y": payload.y,
+        "button": payload.button,
+        "key": payload.key,
+        "dx": payload.dx,
+        "dy": payload.dy,
+    })
+    if not sent:
+        raise HTTPException(status_code=503, detail="Unable to reach device")
+    _record_audit("input_sent", user_id, device_id, {"event": payload.event})
+    return {"status": "success"}
+
+
+@app.post("/api/devices/{device_id}/access")
+async def mark_device_accessed(device_id: str, authorization: str = Header(None)):
+    """Record that the operator opened a remote session."""
+    _require_device_access(device_id, authorization)
+    connected_devices[device_id]["last_accessed"] = datetime.now().isoformat()
+    _persist_devices()
+    return {"status": "success", "last_accessed": connected_devices[device_id]["last_accessed"]}
+
+
+@app.get("/api/devices/{device_id}/installer")
+async def device_installer(device_id: str, request: Request, authorization: str = Header(None)):
+    """Return a copy/paste Always-ON installer command for a store computer."""
+    user_id = _require_device_access(device_id, authorization)
+    device = connected_devices[device_id]
+    device_token = security_manager.create_device_token(device_id, user_id)
+    install_code = device.get("install_code") or secrets.token_urlsafe(12)
+    device["install_code"] = install_code
+    app_store.install_codes()[install_code] = {
+        "device_id": device_id,
+        "user_id": user_id,
+        "created_at": datetime.now().isoformat(),
+    }
+    _persist_devices()
+    base_url = _public_base_url(request)
+    script_url = f"{base_url}/install/windows.ps1?code={install_code}"
+    command = (
+        f"$installer = \"$env:TEMP\\am-connect-store.ps1\"; "
+        f"Invoke-WebRequest -UseBasicParsing -Uri \"{script_url}\" -OutFile $installer; "
+        f"powershell -ExecutionPolicy Bypass -File $installer"
+    )
+    return {
+        "status": "success",
+        "device_id": device_id,
+        "device_name": device.get("device_name"),
+        "install_code": install_code,
+        "script_url": script_url,
+        "command": command,
+        "device_token": device_token,
+        "ws_url": _ws_base_url(request),
+    }
+
+
+@app.get("/install/windows.ps1")
+async def download_windows_installer(request: Request, code: str = Query(...)):
+    """Serve a pre-filled PowerShell installer for one registered store computer."""
+    record = app_store.install_codes().get(code)
+    if not record:
+        raise HTTPException(status_code=404, detail="Install code not found")
+    device_id = record["device_id"]
+    device = connected_devices.get(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    device_token = security_manager.create_device_token(device_id, device["user_id"])
+    script = build_windows_installer(
+        api_url=_public_base_url(request),
+        ws_url=_ws_base_url(request),
+        device_id=device_id,
+        device_token=device_token,
+        device_name=device.get("device_name") or device_id,
+    )
+    return PlainTextResponse(script, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/install/agent.py")
+async def download_agent_script():
+    """Serve the authorized Windows/Linux agent from this same server."""
+    agent_file = BASE_DIR / "client" / "agent.py"
+    if not agent_file.exists():
+        raise HTTPException(status_code=404, detail="Agent script not found")
+    return FileResponse(agent_file, media_type="text/x-python", filename="agent.py")
+
+
+@app.get("/api/me")
+async def current_user(authorization: str = Header(None)):
+    payload = _current_user_payload(authorization)
+    user = next((item for item in security_manager.users.values() if item["id"] == payload["sub"]), None)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "status": "success",
+        "user": {
+            "id": user["id"],
+            "username": user["username"],
+            "email": user["email"],
+        }
+    }
+
+
+@app.post("/api/auth/refresh")
+async def refresh_session(refresh_token: str):
+    try:
+        payload = security_manager.verify_token(refresh_token)
+        if payload.get("type") != "refresh":
+            raise ValueError("Refresh token required")
+        access_token = security_manager.create_access_token(payload["sub"])
+        return {"status": "success", "access_token": access_token}
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
 
 
 # ===== COMMAND EXECUTION =====

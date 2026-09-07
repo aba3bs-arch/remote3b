@@ -5,7 +5,7 @@ Connection Manager - Handles multiple WebSocket connections from devices
 
 import json
 import logging
-from typing import Dict, Set, Optional
+from typing import Dict, List, Set, Optional
 from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,8 @@ class ConnectionManager:
     def __init__(self):
         # Store active connections
         self.active_connections: Dict[str, WebSocket] = {}
+        # Viewer sockets watching a device session
+        self.viewers: Dict[str, List[WebSocket]] = {}
         # Store connection metadata
         self.connection_metadata: Dict[str, dict] = {}
     
@@ -51,6 +53,41 @@ class ConnectionManager:
             if device_id in self.connection_metadata:
                 del self.connection_metadata[device_id]
             logger.info(f"Device {device_id} disconnected")
+
+    async def add_viewer(self, websocket: WebSocket, device_id: str) -> None:
+        """Accept a dashboard viewer for an authorized remote session."""
+        await websocket.accept()
+        self.viewers.setdefault(device_id, [])
+        if websocket not in self.viewers[device_id]:
+            self.viewers[device_id].append(websocket)
+        logger.info(f"Viewer connected to {device_id}")
+
+    def remove_viewer(self, websocket: WebSocket, device_id: str) -> int:
+        """Detach a viewer. Returns remaining viewer count for the device."""
+        remaining = self.viewers.get(device_id, [])
+        self.viewers[device_id] = [item for item in remaining if item is not websocket]
+        if not self.viewers[device_id]:
+            self.viewers.pop(device_id, None)
+            return 0
+        return len(self.viewers[device_id])
+
+    def viewer_count(self, device_id: str) -> int:
+        return len(self.viewers.get(device_id, []))
+
+    async def send_to_viewers(self, device_id: str, message: dict) -> int:
+        """Forward a device message to every connected viewer."""
+        sent = 0
+        stale: List[WebSocket] = []
+        for websocket in list(self.viewers.get(device_id, [])):
+            try:
+                await websocket.send_json(message)
+                sent += 1
+            except Exception as exc:
+                logger.error(f"Error sending to viewer of {device_id}: {exc}")
+                stale.append(websocket)
+        for websocket in stale:
+            self.remove_viewer(websocket, device_id)
+        return sent
     
     async def send_to(self, device_id: str, message: dict) -> bool:
         """

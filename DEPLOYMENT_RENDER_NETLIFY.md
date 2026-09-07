@@ -115,7 +115,7 @@ Use the visual authentication dialog to:
 On the remote computer, install the client dependencies and set the Render WebSocket URL:
 
 ```powershell
-git clone -b cursor/remote-access-dashboard-3dae https://github.com/aba3bs-arch/remote3b.git am-connect
+git clone https://github.com/aba3bs-arch/remote3b.git am-connect
 cd am-connect
 
 python -m venv .venv

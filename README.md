@@ -1,6 +1,16 @@
-# 🔐 AM-CONNECT - Authorized Remote Access for 3B
+# AM-CONNECT - Acceso remoto gratis para tiendas 3B
 
-**AM-CONNECT** is an authorized remote access platform for exclusive 3B use, designed to manage approved devices with enterprise-grade security features.
+**AM-CONNECT** es tu alternativa gratis a RemotePC para ver y controlar las computadoras de tus sucursales. No hay suscripcion: instalas el servidor una vez y en cada tienda corre un agente Always-ON.
+
+## Como usarlo en las tiendas
+
+1. Arranca el servidor y abre el panel en el navegador.
+2. Crea un usuario e inicia sesion.
+3. Pulsa **Agregar computadora** y nombra la sucursal (`3B7 Del Valle`, `3B6 Soli`, etc.).
+4. Copia el comando de PowerShell y pegalo en la PC de esa tienda. Eso instala el agente y lo deja iniciar con Windows.
+5. Cuando el icono se ponga verde, haz doble clic para ver la pantalla y usar mouse/teclado.
+
+Solo instala el agente en equipos de 3B o con permiso explicito del dueno.
 
 ## ✨ Key Features
 
@@ -106,13 +116,10 @@ python client/agent.py
 
 ### Open Dashboard
 Open `https://localhost:8000` or `https://localhost:8000/dashboard` in your browser.
-The dashboard includes a RemotePC-style computer list, search, export, connection actions,
-and an optional API token field to load real devices from `GET /api/devices`.
-Starting a connection opens `/session`, a remote-view shell with a collapsible operator
-toolbar that is local to the control panel and not part of the remote screen content.
-The session view can request real screenshots from the authorized agent, download remote
-files, upload files into the agent's configured AM-CONNECT uploads folder, and show admin
-metrics/audit events for the authenticated user.
+The dashboard includes a RemotePC-style Always-ON computer list, recently accessed
+stores, search, and a one-command Windows installer per store computer.
+Starting a connection opens `/session` with live screen streaming and mouse/keyboard
+control, plus file transfer for authorized devices.
 
 ## ☁️ Deploy on Render + Netlify
 

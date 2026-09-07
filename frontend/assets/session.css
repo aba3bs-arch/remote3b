@@ -94,6 +94,7 @@ button {
   height: calc(100% - 34px);
   object-fit: contain;
   background: #000;
+  cursor: none;
 }
 
 .screen-status {

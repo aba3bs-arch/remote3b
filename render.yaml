@@ -20,3 +20,5 @@ services:
         value: AM-CONNECT
       - key: AM_CONNECT_UPLOAD_DIR
         value: client/downloads
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "720"
