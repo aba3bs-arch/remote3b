@@ -31,12 +31,40 @@ const sessionAdminOnline = document.querySelector("#sessionAdminOnline");
 const sessionAdminScreens = document.querySelector("#sessionAdminScreens");
 const sessionAdminTransfers = document.querySelector("#sessionAdminTransfers");
 const sessionAuditEvents = document.querySelector("#sessionAuditEvents");
+const fullscreenButton = document.querySelector("#fullscreenButton");
+const controlToggleButton = document.querySelector("#controlToggleButton");
+const snapshotButton = document.querySelector("#snapshotButton");
+const changeDeviceButton = document.querySelector("#changeDeviceButton");
+const endSessionButton = document.querySelector("#endSessionButton");
+const infoButton = document.querySelector("#infoButton");
 
 let liveInterval = null;
 let lastScreenshotTimestamp = null;
+let operatorSocket = null;
+let pingTimer = null;
+let controlEnabled = true;
+let dragging = false;
+let screenWidth = 0;
+let screenHeight = 0;
+let lastMoveAt = 0;
 
 deviceNameLabel.textContent = deviceName;
 remoteTabTitle.textContent = deviceName;
+screenImage.classList.toggle("is-control", controlEnabled);
+if (controlToggleButton) {
+  controlToggleButton.classList.toggle("is-active", controlEnabled);
+}
+
+function apiOrigin() {
+  return API_BASE_URL || window.location.origin;
+}
+
+function operatorWsUrl() {
+  const base = new URL(apiOrigin());
+  base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  const token = window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+  return `${base.origin}/ws/operator/${encodeURIComponent(deviceId)}?token=${encodeURIComponent(token)}`;
+}
 
 function authHeaders() {
   const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -107,9 +135,104 @@ function requireDevice() {
   }
 }
 
+function applyScreenshot(payload) {
+  if (!payload?.image) {
+    throw new Error("Respuesta sin imagen.");
+  }
+  screenImage.src = `data:image/jpeg;base64,${payload.image}`;
+  screenImage.hidden = false;
+  remotePlaceholder.hidden = true;
+  lastScreenshotTimestamp = payload.timestamp;
+  screenWidth = Number(payload.screen_width || payload.width || 0);
+  screenHeight = Number(payload.screen_height || payload.height || 0);
+  screenStatus.textContent = `En vivo: ${payload.timestamp || "ahora"} (${payload.width || "?"}x${payload.height || "?"})`;
+}
+
+function sendOperator(message) {
+  if (operatorSocket && operatorSocket.readyState === WebSocket.OPEN) {
+    operatorSocket.send(JSON.stringify(message));
+    return true;
+  }
+  return false;
+}
+
+function connectOperatorSocket() {
+  if (!deviceId) {
+    screenStatus.textContent = "Falta el identificador del equipo.";
+    return;
+  }
+  if (!window.localStorage.getItem(TOKEN_STORAGE_KEY)) {
+    screenStatus.textContent = "Inicia sesion en el panel antes de abrir la sesion remota.";
+    return;
+  }
+
+  if (operatorSocket) {
+    operatorSocket.close();
+  }
+
+  screenStatus.textContent = "Conectando con el agente de la tienda...";
+  operatorSocket = new WebSocket(operatorWsUrl());
+
+  operatorSocket.addEventListener("open", () => {
+    liveToggleButton.textContent = "Stop";
+    sendOperator({ type: "start_stream" });
+    pingTimer = window.setInterval(() => sendOperator({ type: "ping" }), 20000);
+  });
+
+  operatorSocket.addEventListener("message", (event) => {
+    let payload = {};
+    try {
+      payload = JSON.parse(event.data);
+    } catch (error) {
+      return;
+    }
+
+    if (payload.type === "screen_capture") {
+      try {
+        applyScreenshot(payload);
+      } catch (error) {
+        screenStatus.textContent = `Pantalla invalida: ${error.message}`;
+      }
+      return;
+    }
+
+    if (payload.type === "session_ready") {
+      screenStatus.textContent = payload.is_online
+        ? "Sesion lista. Esperando pantalla en vivo..."
+        : "El agente de la tienda esta sin conexion. Dejalo instalado Always-ON.";
+      return;
+    }
+
+    if (payload.type === "device_offline") {
+      screenStatus.textContent = payload.message || "La computadora de la tienda se desconecto.";
+      return;
+    }
+
+    if (payload.type === "device_online") {
+      screenStatus.textContent = "La tienda volvio a conectarse. Recuperando pantalla...";
+      sendOperator({ type: "start_stream" });
+    }
+  });
+
+  operatorSocket.addEventListener("close", () => {
+    if (pingTimer) {
+      window.clearInterval(pingTimer);
+      pingTimer = null;
+    }
+    liveToggleButton.textContent = "Live";
+    if (!liveInterval) {
+      screenStatus.textContent = "Conexion en vivo cerrada. Pulsa Live para reintentar.";
+    }
+  });
+}
+
 async function refreshScreenshot() {
   try {
     requireDevice();
+    if (sendOperator({ type: "screenshot" })) {
+      screenStatus.textContent = "Solicitando captura al agente autorizado...";
+      return;
+    }
     screenStatus.textContent = "Solicitando captura al agente autorizado...";
     await apiRequest(`/api/devices/${encodeURIComponent(deviceId)}/screenshot`, { method: "POST" });
     await new Promise((resolve) => setTimeout(resolve, 700));
@@ -123,34 +246,154 @@ async function loadLatestScreenshot() {
   try {
     requireDevice();
     const payload = await apiRequest(`/api/devices/${encodeURIComponent(deviceId)}/screenshot/latest`);
-    if (!payload.image) {
-      throw new Error("Respuesta sin imagen.");
-    }
-
-    screenImage.src = `data:image/jpeg;base64,${payload.image}`;
-    screenImage.hidden = false;
-    remotePlaceholder.hidden = true;
-    lastScreenshotTimestamp = payload.timestamp;
-    screenStatus.textContent = `Pantalla actualizada: ${payload.timestamp} (${payload.width || "?"}x${payload.height || "?"})`;
+    applyScreenshot(payload);
   } catch (error) {
     screenStatus.textContent = `Esperando captura: ${error.message}`;
   }
 }
 
 function setLiveMode(enabled) {
-  if (enabled && !liveInterval) {
+  if (enabled) {
     liveToggleButton.textContent = "Stop";
-    refreshScreenshot();
-    liveInterval = window.setInterval(refreshScreenshot, 2500);
+    if (!operatorSocket || operatorSocket.readyState !== WebSocket.OPEN) {
+      connectOperatorSocket();
+    } else {
+      sendOperator({ type: "start_stream" });
+    }
+    if (!liveInterval) {
+      liveInterval = window.setInterval(() => {
+        if (!operatorSocket || operatorSocket.readyState !== WebSocket.OPEN) {
+          refreshScreenshot();
+        }
+      }, 2500);
+    }
     return;
   }
 
-  if (!enabled && liveInterval) {
+  liveToggleButton.textContent = "Live";
+  sendOperator({ type: "stop_stream" });
+  if (liveInterval) {
     window.clearInterval(liveInterval);
     liveInterval = null;
-    liveToggleButton.textContent = "Live";
   }
 }
+
+function eventToRemotePoint(event) {
+  const rect = screenImage.getBoundingClientRect();
+  const naturalW = screenImage.naturalWidth || 1;
+  const naturalH = screenImage.naturalHeight || 1;
+  const scale = Math.min(rect.width / naturalW, rect.height / naturalH);
+  const displayedW = naturalW * scale;
+  const displayedH = naturalH * scale;
+  const offsetX = (rect.width - displayedW) / 2;
+  const offsetY = (rect.height - displayedH) / 2;
+  const jpegX = (event.clientX - rect.left - offsetX) / displayedW * naturalW;
+  const jpegY = (event.clientY - rect.top - offsetY) / displayedH * naturalH;
+  const remoteW = screenWidth || naturalW;
+  const remoteH = screenHeight || naturalH;
+  return {
+    x: Math.round(jpegX * (remoteW / naturalW)),
+    y: Math.round(jpegY * (remoteH / naturalH)),
+  };
+}
+
+function sendMouse(action, event, extra = {}) {
+  if (!controlEnabled || screenImage.hidden) {
+    return;
+  }
+  event.preventDefault();
+  const point = eventToRemotePoint(event);
+  if (point.x < 0 || point.y < 0) {
+    return;
+  }
+  sendOperator({
+    type: "input",
+    kind: "mouse",
+    action,
+    button: event.button === 2 ? "right" : event.button === 1 ? "middle" : "left",
+    ...point,
+    ...extra,
+  });
+}
+
+screenImage.addEventListener("mousedown", (event) => {
+  dragging = true;
+  screenImage.focus();
+  sendMouse("down", event);
+});
+
+window.addEventListener("mouseup", (event) => {
+  if (!dragging) {
+    return;
+  }
+  dragging = false;
+  sendMouse("up", event);
+});
+
+screenImage.addEventListener("mousemove", (event) => {
+  if (!dragging || !controlEnabled) {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastMoveAt < 40) {
+    return;
+  }
+  lastMoveAt = now;
+  sendMouse("move", event);
+});
+
+screenImage.addEventListener("wheel", (event) => {
+  if (!controlEnabled) {
+    return;
+  }
+  event.preventDefault();
+  const point = eventToRemotePoint(event);
+  sendOperator({
+    type: "input",
+    kind: "mouse",
+    action: "wheel",
+    delta: event.deltaY < 0 ? 1 : -1,
+    ...point,
+  });
+}, { passive: false });
+
+screenImage.addEventListener("contextmenu", (event) => {
+  if (controlEnabled) {
+    event.preventDefault();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!controlEnabled || document.activeElement !== screenImage) {
+    return;
+  }
+  if (["INPUT", "TEXTAREA"].includes(event.target.tagName)) {
+    return;
+  }
+  event.preventDefault();
+  sendOperator({
+    type: "input",
+    kind: "key",
+    action: "down",
+    key: event.key,
+  });
+});
+
+document.addEventListener("keyup", (event) => {
+  if (!controlEnabled || document.activeElement !== screenImage) {
+    return;
+  }
+  if (["INPUT", "TEXTAREA"].includes(event.target.tagName)) {
+    return;
+  }
+  event.preventDefault();
+  sendOperator({
+    type: "input",
+    kind: "key",
+    action: "up",
+    key: event.key,
+  });
+});
 
 function showPanel(panel) {
   filePanel.hidden = panel !== filePanel;
@@ -286,7 +529,10 @@ async function loadAdminSummary() {
 }
 
 refreshScreenButton.addEventListener("click", refreshScreenshot);
-liveToggleButton.addEventListener("click", () => setLiveMode(!liveInterval));
+liveToggleButton.addEventListener("click", () => {
+  const live = liveToggleButton.textContent === "Live";
+  setLiveMode(live);
+});
 filePanelButton.addEventListener("click", () => showPanel(filePanel));
 adminPanelButton.addEventListener("click", () => {
   showPanel(adminPanel);
@@ -294,6 +540,44 @@ adminPanelButton.addEventListener("click", () => {
 });
 downloadFileButton.addEventListener("click", requestDownload);
 uploadFileButton.addEventListener("click", requestUpload);
+controlToggleButton.addEventListener("click", () => {
+  controlEnabled = !controlEnabled;
+  screenImage.classList.toggle("is-control", controlEnabled);
+  controlToggleButton.classList.toggle("is-active", controlEnabled);
+  screenStatus.textContent = controlEnabled
+    ? "Control remoto activo: haz clic en la pantalla y escribe."
+    : "Control remoto pausado. Solo estas viendo la pantalla.";
+  if (controlEnabled) {
+    screenImage.focus();
+  }
+});
+fullscreenButton.addEventListener("click", () => {
+  const stage = document.querySelector(".remote-stage");
+  if (!document.fullscreenElement) {
+    stage.requestFullscreen?.();
+  } else {
+    document.exitFullscreen?.();
+  }
+});
+snapshotButton.addEventListener("click", () => {
+  if (!screenImage.src) {
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = screenImage.src;
+  link.download = `${deviceName.replaceAll(" ", "-")}-captura.jpg`;
+  link.click();
+});
+infoButton?.addEventListener("click", () => {
+  window.alert(`${deviceName}\nID: ${deviceId || "desconocido"}\nControl: ${controlEnabled ? "activo" : "pausado"}`);
+});
+changeDeviceButton?.addEventListener("click", () => {
+  window.location.assign("/dashboard");
+});
+endSessionButton?.addEventListener("click", () => {
+  sendOperator({ type: "stop_stream" });
+  window.location.assign("/dashboard");
+});
 
 document.querySelectorAll("[data-close-panel]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -309,3 +593,4 @@ if (initialPanel === "files") {
 }
 
 loadLatestScreenshot();
+setLiveMode(true);

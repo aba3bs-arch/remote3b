@@ -25,20 +25,40 @@ class SecurityManager:
     Handles user authentication, token generation, 2FA, and data encryption
     """
     
-    def __init__(self):
+    def __init__(self, store=None):
         self.secret_key = os.getenv('SECRET_KEY', 'dev-key-change-in-production')
         self.algorithm = os.getenv('ALGORITHM', 'HS256')
         self.access_token_expire = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 30))
         self.refresh_token_expire = int(os.getenv('REFRESH_TOKEN_EXPIRE_DAYS', 7))
         
-        # In-memory user store (replace with database in production)
         self.users = {}
         self.devices = {}
         self.refresh_tokens = {}
+        self.store = None
         
         # Encryption key for sensitive data
         self.encryption_key = os.getenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
         self.cipher = Fernet(self.encryption_key.encode() if isinstance(self.encryption_key, str) else self.encryption_key)
+        if store is not None:
+            self.set_store(store)
+
+    def set_store(self, store) -> None:
+        """Attach persistent storage and reload users."""
+        self.store = store
+        self.users = store.load_users() if store else {}
+
+    def reset(self, store=None) -> None:
+        """Clear runtime auth state. Used by tests."""
+        self.users = {}
+        self.devices = {}
+        self.refresh_tokens = {}
+        self.store = None
+        if store is not None:
+            self.set_store(store)
+
+    def _persist_user(self, user: Dict) -> None:
+        if self.store is not None:
+            self.store.save_user(user)
     
     # ===== PASSWORD SECURITY =====
     
@@ -138,6 +158,7 @@ class SecurityManager:
         }
         
         self.users[username] = user
+        self._persist_user(user)
         return user
     
     def login_user(self, username: str, password: str, totp_code: Optional[str] = None) -> Tuple[Dict, Dict]:
@@ -179,10 +200,25 @@ class SecurityManager:
         
         # Update last login
         user['last_login'] = datetime.now().isoformat()
+        self._persist_user(user)
         
         return user, {
             'access_token': access_token,
             'refresh_token': refresh_token,
+            'token_type': 'bearer'
+        }
+
+    def refresh_access_token(self, refresh_token: str) -> Dict:
+        """Issue a new access token from a valid refresh token."""
+        payload = self.verify_token(refresh_token)
+        if payload.get('type') != 'refresh':
+            raise ValueError("Refresh token required")
+        jti = payload.get('jti')
+        if jti and jti not in self.refresh_tokens:
+            # Tokens issued before this process started remain valid until expiry.
+            self.refresh_tokens[jti] = True
+        return {
+            'access_token': self.create_access_token(payload['sub']),
             'token_type': 'bearer'
         }
     
@@ -310,6 +346,7 @@ class SecurityManager:
         buffer = BytesIO()
         img.save(buffer, format='PNG')
         qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+        self._persist_user(user)
         
         return secret, f"data:image/png;base64,{qr_code_base64}"
     
@@ -335,6 +372,7 @@ class SecurityManager:
             raise ValueError("Invalid 2FA code")
         
         user['two_factor_enabled'] = True
+        self._persist_user(user)
         return True
     
     def verify_totp(self, secret: str, totp_code: str, window: int = 1) -> bool:

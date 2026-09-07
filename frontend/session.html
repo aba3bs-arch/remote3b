@@ -27,7 +27,7 @@
               </div>
             </div>
           </div>
-          <img id="screenImage" class="screen-image" alt="Captura de pantalla remota" hidden />
+          <img id="screenImage" class="screen-image" alt="Captura de pantalla remota" tabindex="0" hidden />
           <div id="screenStatus" class="screen-status">Esperando captura autorizada...</div>
         </div>
       </section>
@@ -44,17 +44,17 @@
 
           <div class="toolbar-actions" aria-label="Herramientas de sesion">
             <button id="refreshScreenButton" type="button" title="Actualizar pantalla">PC</button>
-            <button type="button" title="Informacion">i</button>
-            <button type="button" title="Audio">Vol</button>
-            <button type="button" title="Pantalla completa">Full</button>
+            <button id="infoButton" type="button" title="Informacion">i</button>
+            <button type="button" title="Audio" disabled>Vol</button>
+            <button id="fullscreenButton" type="button" title="Pantalla completa">Full</button>
             <button id="liveToggleButton" type="button" title="Activar visor en vivo">Live</button>
-            <button type="button" title="Chat">Chat</button>
-            <button type="button" title="Anotar">Pen</button>
-            <button type="button" title="Zoom">Zoom</button>
-            <button type="button" title="Captura">Cam</button>
+            <button type="button" title="Chat" disabled>Chat</button>
+            <button type="button" title="Anotar" disabled>Pen</button>
+            <button type="button" title="Zoom" disabled>Zoom</button>
+            <button id="snapshotButton" type="button" title="Captura">Cam</button>
             <button id="filePanelButton" type="button" title="Archivos">File</button>
-            <button type="button" title="Teclado">Keys</button>
-            <button type="button" title="Vista">View</button>
+            <button id="controlToggleButton" type="button" title="Tomar control del mouse y teclado">Ctrl</button>
+            <button type="button" title="Vista" disabled>View</button>
             <button id="adminPanelButton" type="button" title="Administracion">Admin</button>
           </div>
 
@@ -65,9 +65,9 @@
         </div>
 
         <div class="device-menu" id="deviceMenu" hidden>
-          <button type="button">Cambiar equipo</button>
-          <button type="button">Calidad: Automatica</button>
-          <button type="button">Finalizar sesion</button>
+          <button id="changeDeviceButton" type="button">Cambiar equipo</button>
+          <button type="button" disabled>Calidad: Automatica</button>
+          <button id="endSessionButton" type="button">Finalizar sesion</button>
         </div>
       </section>
 

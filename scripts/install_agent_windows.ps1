@@ -33,7 +33,7 @@ param(
 
     [string]$RepoUrl = "https://github.com/aba3bs-arch/remote3b.git",
 
-    [string]$Branch = "cursor/remote-access-dashboard-3dae",
+    [string]$Branch = "main",
 
     [switch]$StartNow,
 
@@ -153,7 +153,7 @@ $venvPip = Join-Path $installPath ".venv\Scripts\pip.exe"
 
 Write-Step "Installing agent dependencies"
 & $venvPython -m pip install --upgrade pip
-& $venvPip install aiohttp psutil mss pillow python-dotenv
+& $venvPip install aiohttp psutil mss pillow python-dotenv pynput
 
 Write-Step "Writing agent configuration"
 $envContent = @"

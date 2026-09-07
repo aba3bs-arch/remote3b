@@ -22,6 +22,8 @@ class ConnectionManager:
         self.active_connections: Dict[str, WebSocket] = {}
         # Store connection metadata
         self.connection_metadata: Dict[str, dict] = {}
+        # Operator viewers keyed by device_id
+        self.operator_connections: Dict[str, list] = {}
     
     async def connect(self, websocket: WebSocket, device_id: str) -> None:
         """
@@ -51,6 +53,39 @@ class ConnectionManager:
             if device_id in self.connection_metadata:
                 del self.connection_metadata[device_id]
             logger.info(f"Device {device_id} disconnected")
+
+    async def connect_operator(self, websocket: WebSocket, device_id: str) -> None:
+        """Accept an operator/viewer websocket for a device."""
+        await websocket.accept()
+        self.operator_connections.setdefault(device_id, []).append(websocket)
+        logger.info(f"Operator connected to {device_id}")
+
+    def disconnect_operator(self, websocket: WebSocket, device_id: str) -> None:
+        """Remove an operator/viewer websocket."""
+        viewers = self.operator_connections.get(device_id) or []
+        self.operator_connections[device_id] = [item for item in viewers if item is not websocket]
+        if not self.operator_connections[device_id]:
+            self.operator_connections.pop(device_id, None)
+        logger.info(f"Operator disconnected from {device_id}")
+
+    def operator_count(self, device_id: str) -> int:
+        return len(self.operator_connections.get(device_id) or [])
+
+    async def send_to_operators(self, device_id: str, message: dict) -> int:
+        """Push a message to every operator watching this device."""
+        viewers = list(self.operator_connections.get(device_id) or [])
+        sent = 0
+        stale = []
+        for websocket in viewers:
+            try:
+                await websocket.send_json(message)
+                sent += 1
+            except Exception as exc:
+                logger.error(f"Error sending to operator of {device_id}: {exc}")
+                stale.append(websocket)
+        for websocket in stale:
+            self.disconnect_operator(websocket, device_id)
+        return sent
     
     async def send_to(self, device_id: str, message: dict) -> bool:
         """

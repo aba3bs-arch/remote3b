@@ -14,7 +14,7 @@
         </div>
         <button class="icon-button" aria-label="Abrir menu">☰</button>
         <div class="plan-pill">Uso exclusivo 3B</div>
-        <button class="top-action primary">Agregar equipo / Descargar agente</button>
+        <button id="addComputerButton" class="top-action primary" type="button">Agregar equipo / Descargar agente</button>
         <div class="language">ES ▾</div>
         <div class="avatar">A</div>
       </header>
@@ -60,7 +60,7 @@
 
         <section class="computer-panel" aria-labelledby="computerListTitle">
           <div class="panel-header">
-            <p id="dataSource" class="muted">Mostrando datos de ejemplo. Guarda un token para cargar tu API.</p>
+            <p id="dataSource" class="muted">Inicia sesion para ver las computadoras de tus tiendas.</p>
             <div class="panel-actions">
               <button id="exportButton" class="link-button" type="button">Exportar lista</button>
             </div>
@@ -118,10 +118,35 @@
       </main>
     </div>
 
+    <dialog id="addComputerDialog">
+      <form method="dialog" class="dialog-card">
+        <h2>Agregar computadora de tienda</h2>
+        <p class="muted">Registra el equipo aqui y luego corre el comando en la PC de la tienda. No se paga suscripcion: el agente se conecta a tu propio servidor.</p>
+        <label>
+          Nombre de la tienda
+          <input id="newDeviceNameInput" type="text" placeholder="3B7 Del Valle" />
+        </label>
+        <label>
+          Sistema
+          <input id="newDeviceOsInput" type="text" value="Windows" />
+        </label>
+        <button id="registerDeviceButton" class="primary-action" type="button">Registrar y generar instalador</button>
+        <p id="addComputerMessage" class="muted"></p>
+        <label>
+          Comando PowerShell para la PC de la tienda
+          <textarea id="installCommandInput" rows="7" readonly placeholder="Primero registra el equipo."></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button id="copyInstallButton" class="outline-button" type="button">Copiar comando</button>
+          <button value="cancel" class="primary-action" type="submit">Cerrar</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="tokenDialog">
       <form method="dialog" class="dialog-card">
         <h2>Autenticacion visual</h2>
-        <p class="muted">Inicia sesion para obtener un token Bearer o pegalo manualmente si ya lo tienes.</p>
+        <p class="muted">Crea un usuario o inicia sesion. La contrasena necesita 12 caracteres o mas, con mayuscula, minuscula, numero y simbolo (ejemplo: Tiendas@12345).</p>
         <div class="auth-grid">
           <label>
             Usuario

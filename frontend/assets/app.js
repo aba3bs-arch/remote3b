@@ -1,78 +1,3 @@
-const sampleDevices = [
-  {
-    device_id: "device_001",
-    device_name: "3B Fusion",
-    os: "Windows",
-    is_online: true,
-    in_session: true,
-    last_seen: "Hace 3 minutos",
-  },
-  {
-    device_id: "device_002",
-    device_name: "3B10 ElMezquite",
-    os: "Windows",
-    is_online: true,
-    in_session: false,
-    last_seen: "Hace 8 horas",
-  },
-  {
-    device_id: "device_003",
-    device_name: "3B2 pueblo nuevo",
-    os: "Windows",
-    is_online: true,
-    in_session: false,
-    last_seen: "Hace 3 dias",
-  },
-  {
-    device_id: "device_004",
-    device_name: "3B5 Lomas Dos",
-    os: "Windows",
-    is_online: true,
-    in_session: false,
-    last_seen: "Hace 3 dias",
-  },
-  {
-    device_id: "device_005",
-    device_name: "3B6 Soli",
-    os: "Windows",
-    is_online: true,
-    in_session: false,
-    last_seen: "Hace 18 horas",
-  },
-  {
-    device_id: "device_006",
-    device_name: "3B7 Del Valle",
-    os: "Windows",
-    is_online: true,
-    in_session: false,
-    last_seen: "Hace 4 dias",
-  },
-  {
-    device_id: "device_007",
-    device_name: "3B9 B. Aires",
-    os: "Windows",
-    is_online: true,
-    in_session: false,
-    last_seen: "Hace 5 dias",
-  },
-  {
-    device_id: "device_008",
-    device_name: "EastTexas",
-    os: "Windows",
-    is_online: false,
-    in_session: false,
-    last_seen: "Hace 9 horas",
-  },
-  {
-    device_id: "device_009",
-    device_name: "TabletAcacia",
-    os: "Windows",
-    is_online: false,
-    in_session: false,
-    last_seen: "12 Nov 2024, 14:38:30",
-  },
-];
-
 const TOKEN_STORAGE_KEY = "am_connect_api_token";
 const API_BASE_URL = (window.AM_CONNECT_CONFIG?.apiBaseUrl || "").replace(/\/$/, "");
 
@@ -113,6 +38,14 @@ const adminScreens = document.querySelector("#adminScreens");
 const adminTransfers = document.querySelector("#adminTransfers");
 const auditEvents = document.querySelector("#auditEvents");
 const exportButton = document.querySelector("#exportButton");
+const addComputerButton = document.querySelector("#addComputerButton");
+const addComputerDialog = document.querySelector("#addComputerDialog");
+const newDeviceNameInput = document.querySelector("#newDeviceNameInput");
+const newDeviceOsInput = document.querySelector("#newDeviceOsInput");
+const registerDeviceButton = document.querySelector("#registerDeviceButton");
+const addComputerMessage = document.querySelector("#addComputerMessage");
+const installCommandInput = document.querySelector("#installCommandInput");
+const copyInstallButton = document.querySelector("#copyInstallButton");
 
 function statusLabel(device) {
   if (device.in_session) {
@@ -221,7 +154,7 @@ function renderRows() {
 
   if (devices.length === 0) {
     const emptyRow = document.createElement("tr");
-    emptyRow.innerHTML = '<td colspan="4">No se encontraron equipos.</td>';
+    emptyRow.innerHTML = '<td colspan="4">No hay equipos todavia. Inicia sesion y usa Agregar equipo para conectar una tienda.</td>';
     rows.appendChild(emptyRow);
     return;
   }
@@ -315,12 +248,15 @@ function openRemoteSession(device) {
 async function loadDevicesFromApi() {
   const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
   if (!token) {
-    state.devices = sampleDevices;
+    state.devices = [];
     state.usingApi = false;
-    dataSource.textContent = "Mostrando datos de ejemplo. Guarda un token para cargar tu API.";
-    authState.textContent = "Sin autenticacion visual. Inicia sesion para ver equipos reales, auditoria y transferencias.";
+    dataSource.textContent = "Inicia sesion para ver las computadoras de tus tiendas.";
+    authState.textContent = "Sin autenticacion. Crea un usuario o inicia sesion para administrar tus tiendas.";
     renderAdminSummary(null);
     render();
+    if (tokenDialog && !tokenDialog.open) {
+      tokenDialog.showModal();
+    }
     return;
   }
 
@@ -328,18 +264,24 @@ async function loadDevicesFromApi() {
     const payload = await apiRequest("/api/devices");
     state.devices = (payload.devices || []).map(normalizeApiDevice);
     state.usingApi = true;
-    dataSource.textContent = `Mostrando ${state.devices.length} equipos desde la API.`;
+    dataSource.textContent = state.devices.length
+      ? `Mostrando ${state.devices.length} equipos desde tu servidor (sin suscripcion).`
+      : "No hay equipos. Usa Agregar equipo y corre el instalador en la PC de la tienda.";
     authState.textContent = "Sesion activa. Panel administrativo sincronizado con la API.";
     await loadAdminSummary();
   } catch (error) {
-    state.devices = sampleDevices;
     state.usingApi = false;
-    dataSource.textContent = `No se pudo cargar la API (${error.message}). Mostrando datos de ejemplo.`;
+    dataSource.textContent = `No se pudo cargar la API (${error.message}).`;
     authState.textContent = `No se pudo cargar la API (${error.message}).`;
-    renderAdminSummary(null);
+    if (!state.devices.length) {
+      renderAdminSummary(null);
+    }
   }
 
-  state.selectedId = state.devices[0]?.device_id || null;
+  const previousSelected = state.selectedId;
+  state.selectedId = state.devices.some((device) => device.device_id === previousSelected)
+    ? previousSelected
+    : state.devices[0]?.device_id || null;
   render();
 }
 
@@ -385,20 +327,24 @@ async function loginWithCredentials() {
     return;
   }
 
-  const params = new URLSearchParams({ username, password });
-  if (totp) {
-    params.set("totp_code", totp);
-  }
-
   authMessage.textContent = "Autenticando...";
   try {
-    const payload = await apiRequest(`/api/auth/login?${params.toString()}`, { method: "POST" });
+    const payload = await apiRequest("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username,
+        password,
+        totp_code: totp || null,
+      }),
+    });
 
     window.localStorage.setItem(TOKEN_STORAGE_KEY, payload.access_token);
     tokenInput.value = payload.access_token;
     passwordInput.value = "";
     totpInput.value = "";
     authMessage.textContent = `Sesion iniciada como ${payload.user.username}.`;
+    tokenDialog.close();
     await loadDevicesFromApi();
   } catch (error) {
     authMessage.textContent = `Error de autenticacion: ${error.message}`;
@@ -415,10 +361,13 @@ async function registerUser() {
     return;
   }
 
-  const params = new URLSearchParams({ username, email, password });
   authMessage.textContent = "Creando usuario...";
   try {
-    const payload = await apiRequest(`/api/auth/register?${params.toString()}`, { method: "POST" });
+    const payload = await apiRequest("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, email, password }),
+    });
 
     authMessage.textContent = `Usuario ${payload.username} creado. Ahora inicia sesion.`;
   } catch (error) {
@@ -494,5 +443,86 @@ auditButton.addEventListener("click", () => {
 });
 
 exportButton.addEventListener("click", exportDevices);
+
+function serverOrigin() {
+  return API_BASE_URL || window.location.origin;
+}
+
+function buildInstallCommand(device) {
+  const api = serverOrigin();
+  const name = String(device.device_name || "").replaceAll('"', "'");
+  return [
+    `$Api="${api}"`,
+    `$Id="${device.device_id}"`,
+    `$Tok="${device.device_token}"`,
+    `$Name="${name}"`,
+    `irm "$Api/install/windows.ps1" -OutFile "$env:TEMP\\am-connect-install.ps1"`,
+    `powershell -ExecutionPolicy Bypass -File "$env:TEMP\\am-connect-install.ps1" -ServerUrl $Api -DeviceId $Id -DeviceToken $Tok -DeviceName $Name`,
+  ].join("\n");
+}
+
+async function registerStoreComputer() {
+  const deviceName = newDeviceNameInput.value.trim();
+  const osName = (newDeviceOsInput.value || "Windows").trim();
+  if (!deviceName) {
+    addComputerMessage.textContent = "Escribe el nombre de la tienda, por ejemplo 3B7 Del Valle.";
+    return;
+  }
+  if (!window.localStorage.getItem(TOKEN_STORAGE_KEY)) {
+    addComputerMessage.textContent = "Primero inicia sesion.";
+    addComputerDialog.close();
+    tokenDialog.showModal();
+    return;
+  }
+
+  addComputerMessage.textContent = "Registrando equipo...";
+  try {
+    const payload = await apiRequest("/api/devices/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_name: deviceName, os: osName }),
+    });
+    installCommandInput.value = buildInstallCommand(payload);
+    addComputerMessage.textContent =
+      "Equipo registrado. Copia el comando y pegalo en PowerShell de la computadora de la tienda. El agente queda Always-ON al iniciar Windows.";
+    await loadDevicesFromApi();
+  } catch (error) {
+    addComputerMessage.textContent = `No se pudo registrar: ${error.message}`;
+  }
+}
+
+addComputerButton.addEventListener("click", () => {
+  if (!window.localStorage.getItem(TOKEN_STORAGE_KEY)) {
+    tokenDialog.showModal();
+    authMessage.textContent = "Inicia sesion para agregar una computadora de tienda.";
+    return;
+  }
+  addComputerMessage.textContent = "";
+  installCommandInput.value = "";
+  addComputerDialog.showModal();
+});
+
+registerDeviceButton.addEventListener("click", registerStoreComputer);
+
+copyInstallButton.addEventListener("click", async () => {
+  const command = installCommandInput.value.trim();
+  if (!command) {
+    addComputerMessage.textContent = "Registra el equipo primero para generar el comando.";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(command);
+    addComputerMessage.textContent = "Comando copiado. Pegalo en PowerShell de la tienda.";
+  } catch (error) {
+    installCommandInput.select();
+    addComputerMessage.textContent = "No se pudo copiar automaticamente. Selecciona el texto y copia con Ctrl+C.";
+  }
+});
+
+window.setInterval(() => {
+  if (window.localStorage.getItem(TOKEN_STORAGE_KEY)) {
+    loadDevicesFromApi();
+  }
+}, 5000);
 
 loadDevicesFromApi();

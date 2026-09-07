@@ -65,26 +65,15 @@ function Encode-QueryValue {
     return [System.Uri]::EscapeDataString($Value)
 }
 
-function Invoke-AmConnectPost {
+function Invoke-AmConnectJsonPost {
     param(
         [string]$Url,
-        [hashtable]$Query,
+        [hashtable]$Body,
         [hashtable]$Headers = @{}
     )
 
-    $pairs = @()
-    foreach ($key in $Query.Keys) {
-        if ($null -ne $Query[$key] -and $Query[$key] -ne "") {
-            $pairs += "$(Encode-QueryValue $key)=$(Encode-QueryValue ([string]$Query[$key]))"
-        }
-    }
-
-    $requestUrl = $Url
-    if ($pairs.Count -gt 0) {
-        $requestUrl = "$Url?$($pairs -join '&')"
-    }
-
-    return Invoke-RestMethod -Method Post -Uri $requestUrl -Headers $Headers
+    $json = $Body | ConvertTo-Json -Compress
+    return Invoke-RestMethod -Method Post -Uri $Url -Headers $Headers -ContentType "application/json" -Body $json
 }
 
 function Get-Python {
@@ -102,7 +91,7 @@ function Get-Python {
 }
 
 $InstallDir = "$env:LOCALAPPDATA\AM-CONNECT\agent"
-$ZipUrl = "https://github.com/aba3bs-arch/remote3b/archive/refs/heads/cursor/remote-access-dashboard-3dae.zip"
+$ZipUrl = "https://github.com/aba3bs-arch/remote3b/archive/refs/heads/main.zip"
 $ZipFile = "$env:TEMP\am-connect-agent.zip"
 $ExtractDir = "$env:TEMP\am-connect-agent"
 $WsUrl = Normalize-ServerUrl $ServerUrl
@@ -122,18 +111,18 @@ if (-not $DeviceToken) {
     }
 
     Write-Host "Registrando esta computadora en AM-CONNECT..." -ForegroundColor Cyan
-    $login = Invoke-AmConnectPost `
+    $login = Invoke-AmConnectJsonPost `
         -Url "$ApiUrl/api/auth/login" `
-        -Query @{ username = $AdminUsername; password = $AdminPassword }
+        -Body @{ username = $AdminUsername; password = $AdminPassword }
 
     $accessToken = $login.access_token
     if (-not $accessToken) {
         throw "No se pudo obtener access_token del servidor."
     }
 
-    $registration = Invoke-AmConnectPost `
+    $registration = Invoke-AmConnectJsonPost `
         -Url "$ApiUrl/api/devices/register" `
-        -Query @{ device_name = $DeviceName; os = "Windows" } `
+        -Body @{ device_name = $DeviceName; os = "Windows" } `
         -Headers @{ Authorization = "Bearer $accessToken" }
 
     $DeviceId = $registration.device_id
@@ -180,7 +169,7 @@ $VenvPython = "$InstallDir\.venv\Scripts\python.exe"
 $VenvPip = "$InstallDir\.venv\Scripts\pip.exe"
 
 & $VenvPython -m pip install --upgrade pip
-& $VenvPip install aiohttp psutil mss pillow python-dotenv
+& $VenvPip install aiohttp psutil mss pillow python-dotenv pynput
 
 @"
 SERVER_URL=$WsUrl

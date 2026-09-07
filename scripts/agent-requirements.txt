@@ -1,0 +1,6 @@
+aiohttp
+psutil
+mss
+pillow
+python-dotenv
+pynput

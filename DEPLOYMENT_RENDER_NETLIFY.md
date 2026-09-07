@@ -133,6 +133,6 @@ python client/agent.py
 
 ## Notes
 
-- Render free instances can sleep. For reliable remote access, use a paid Render instance or a VPS.
-- Current user/device/session state is in memory. If Render restarts, users and registered devices are lost until persistent database storage is added.
+- Current user/device state is stored in SQLite (`am_connect.db`). Keep `SECRET_KEY` stable or device tokens stop working after a restart.
+- Render free instances can sleep and have an ephemeral disk. For reliable always-on access without paying, run the server on an office PC and optionally expose it with a free Cloudflare Tunnel.
 - Only run agents on computers you own or where you have explicit authorization.

@@ -32,5 +32,6 @@ aiohttp
 # Development
 pytest
 pytest-asyncio
+httpx
 black
 flake8

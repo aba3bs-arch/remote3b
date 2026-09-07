@@ -14,9 +14,9 @@ from datetime import datetime
 from typing import Dict, Optional, Set
 from pathlib import Path
 
-from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, status
+from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import uvicorn
@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 from connection_manager import ConnectionManager
 from security import SecurityManager
+from store import AppStore
 
 # Load environment variables
 load_dotenv()
@@ -45,7 +46,10 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(','),
+    allow_origins=os.getenv(
+        'ALLOWED_ORIGINS',
+        'http://localhost:3000,http://localhost:8000,http://127.0.0.1:8000'
+    ).split(','),
     allow_credentials=True,
     allow_methods=["*"],
     expose_headers=["*"],
@@ -55,6 +59,7 @@ app.add_middleware(
 # Initialize managers
 connection_manager = ConnectionManager()
 security_manager = SecurityManager()
+store = AppStore()
 
 # Store connected devices
 connected_devices: Dict[str, dict] = {}
@@ -64,6 +69,43 @@ audit_events = []
 BASE_DIR = Path(__file__).resolve().parent.parent
 DASHBOARD_DIR = BASE_DIR / "frontend"
 ASSETS_DIR = DASHBOARD_DIR / "assets"
+SCRIPTS_DIR = BASE_DIR / "scripts"
+CLIENT_DIR = BASE_DIR / "client"
+
+
+def reset_app_state(db_path: Optional[os.PathLike] = None) -> None:
+    """Reset runtime state. Used by tests and local bootstraps."""
+    global store
+    connected_devices.clear()
+    latest_screenshots.clear()
+    file_transfers.clear()
+    audit_events.clear()
+    connection_manager.active_connections.clear()
+    connection_manager.connection_metadata.clear()
+    connection_manager.operator_connections.clear()
+    store = AppStore(db_path) if db_path else AppStore()
+    security_manager.reset(store)
+    security_manager.secret_key = os.getenv("SECRET_KEY", "dev-key-change-in-production")
+    connected_devices.update(store.load_devices())
+
+
+def bootstrap_admin() -> None:
+    username = os.getenv("BOOTSTRAP_ADMIN_USERNAME")
+    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD")
+    email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@3b.local")
+    if not username or not password:
+        return
+    if username in security_manager.users:
+        return
+    try:
+        security_manager.register_user(username, email, password)
+        logger.info("Bootstrap admin user created: %s", username)
+    except ValueError as exc:
+        logger.warning("Bootstrap admin not created: %s", exc)
+
+
+reset_app_state()
+bootstrap_admin()
 
 if ASSETS_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
@@ -74,6 +116,27 @@ class FileUploadPayload(BaseModel):
 
     filename: str = Field(..., min_length=1, max_length=255)
     content_base64: str = Field(..., min_length=1)
+
+
+async def _json_or_query(request: Request, **query_values) -> dict:
+    data = {key: value for key, value in query_values.items() if value not in (None, "")}
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if isinstance(body, dict):
+            for key, value in body.items():
+                if value not in (None, ""):
+                    data[key] = value
+    return data
+
+
+def _persist_device(device_id: str) -> None:
+    device = connected_devices.get(device_id)
+    if device:
+        store.save_device(device_id, device)
 
 
 def _authorization_token(authorization: Optional[str]) -> str:
@@ -159,10 +222,20 @@ async def remote_session():
 
 # ===== AUTHENTICATION ENDPOINTS =====
 @app.post("/api/auth/register")
-async def register(username: str, email: str, password: str):
+async def register(
+    request: Request,
+    username: str = None,
+    email: str = None,
+    password: str = None
+):
     """Register a new user"""
+    data = await _json_or_query(request, username=username, email=email, password=password)
     try:
-        user = security_manager.register_user(username, email, password)
+        user = security_manager.register_user(
+            data.get("username", ""),
+            data.get("email", ""),
+            data.get("password", "")
+        )
         return {
             "status": "success",
             "message": "User registered successfully",
@@ -174,10 +247,25 @@ async def register(username: str, email: str, password: str):
 
 
 @app.post("/api/auth/login")
-async def login(username: str, password: str, totp_code: str = None):
+async def login(
+    request: Request,
+    username: str = None,
+    password: str = None,
+    totp_code: str = None
+):
     """Login user"""
+    data = await _json_or_query(
+        request,
+        username=username,
+        password=password,
+        totp_code=totp_code
+    )
     try:
-        user, tokens = security_manager.login_user(username, password, totp_code)
+        user, tokens = security_manager.login_user(
+            data.get("username", ""),
+            data.get("password", ""),
+            data.get("totp_code")
+        )
         return {
             "status": "success",
             "message": "Login successful",
@@ -190,6 +278,17 @@ async def login(username: str, password: str, totp_code: str = None):
                 "two_factor_enabled": user.get('two_factor_enabled', False)
             }
         }
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@app.post("/api/auth/refresh")
+async def refresh_token(request: Request, refresh_token: str = None):
+    """Renew an access token."""
+    data = await _json_or_query(request, refresh_token=refresh_token)
+    try:
+        tokens = security_manager.refresh_access_token(data.get("refresh_token", ""))
+        return {"status": "success", **tokens}
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
@@ -224,30 +323,43 @@ async def confirm_2fa(user_id: str, totp_code: str):
 
 # ===== DEVICE ENDPOINTS =====
 @app.post("/api/devices/register")
-async def register_device(device_name: str, os: str, authorization: str = Header(None)):
+async def register_device(
+    request: Request,
+    device_name: str = None,
+    os: str = None,
+    authorization: str = Header(None)
+):
     """Register a new device"""
     try:
         user_id = _current_user_id(authorization)
+        data = await _json_or_query(request, device_name=device_name, os=os)
+        device_name = (data.get("device_name") or "").strip()
+        os_name = (data.get("os") or "Windows").strip() or "Windows"
+        if not device_name:
+            raise HTTPException(status_code=400, detail="device_name is required")
         
-        device_id = f"device_{len(connected_devices) + 1:03d}"
+        device_id = f"dev_{secrets.token_hex(6)}"
         device_token = security_manager.create_device_token(device_id, user_id)
         
         connected_devices[device_id] = {
             "device_name": device_name,
-            "os": os,
+            "os": os_name,
             "user_id": user_id,
             "is_online": False,
             "created_at": datetime.now().isoformat(),
             "last_seen": None
         }
+        _persist_device(device_id)
         
         logger.info(f"Device registered: {device_id}")
-        _record_audit("device_registered", user_id, device_id, {"device_name": device_name, "os": os})
+        _record_audit("device_registered", user_id, device_id, {"device_name": device_name, "os": os_name})
         
         return {
             "status": "success",
             "device_id": device_id,
             "device_token": device_token,
+            "device_name": device_name,
+            "os": os_name,
             "message": "Device registered successfully"
         }
     except HTTPException:
@@ -255,6 +367,18 @@ async def register_device(device_name: str, os: str, authorization: str = Header
     except Exception as e:
         logger.error(f"Error registering device: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/devices/{device_id}")
+async def delete_device(device_id: str, authorization: str = Header(None)):
+    """Remove an authorized store computer from this account."""
+    user_id = _require_device_access(device_id, authorization)
+    connection_manager.disconnect(device_id)
+    connected_devices.pop(device_id, None)
+    latest_screenshots.pop(device_id, None)
+    store.delete_device(device_id)
+    _record_audit("device_removed", user_id, device_id)
+    return {"status": "success", "message": "Device removed", "device_id": device_id}
 
 
 @app.get("/api/devices")
@@ -267,7 +391,8 @@ async def list_devices(authorization: str = Header(None)):
             {
                 "device_id": dev_id,
                 **device_info,
-                "is_online": dev_id in connection_manager.active_connections
+                "is_online": dev_id in connection_manager.active_connections,
+                "in_session": connection_manager.operator_count(dev_id) > 0,
             }
             for dev_id, device_info in connected_devices.items()
             if device_info['user_id'] == user_id
@@ -335,50 +460,65 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Option
         await connection_manager.connect(websocket, device_id)
         connected_devices[device_id]['is_online'] = True
         connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
+        _persist_device(device_id)
         
         logger.info(f"Device connected: {device_id}")
         
-        # Broadcast device online status
-        await connection_manager.broadcast({
+        online_message = {
             "type": "device_online",
             "device_id": device_id,
             "timestamp": datetime.now().isoformat()
-        })
+        }
+        await connection_manager.send_to_operators(device_id, online_message)
+        if connection_manager.operator_count(device_id) > 0:
+            await connection_manager.send_to(device_id, {"type": "start_stream"})
         
         # Handle incoming messages
         while True:
             try:
                 data = await websocket.receive_json()
+                msg_type = data.get('type')
                 
-                # Process message based on type
-                if data.get('type') == 'screen_capture':
-                    latest_screenshots[device_id] = {
+                if msg_type == 'screen_capture':
+                    snapshot = {
                         "device_id": device_id,
                         "image": data.get('image'),
                         "width": data.get('width'),
                         "height": data.get('height'),
+                        "screen_width": data.get('screen_width') or data.get('width'),
+                        "screen_height": data.get('screen_height') or data.get('height'),
                         "timestamp": data.get('timestamp') or datetime.now().isoformat()
                     }
+                    latest_screenshots[device_id] = snapshot
+                    await connection_manager.send_to_operators(device_id, {
+                        "type": "screen_capture",
+                        **snapshot
+                    })
                 
-                elif data.get('type') == 'command_response':
-                    # Route to specific controller
+                elif msg_type == 'command_response':
                     target = data.get('target')
                     if target:
                         await connection_manager.send_to(target, data)
+                    await connection_manager.send_to_operators(device_id, data)
                 
-                elif data.get('type') == 'chat':
-                    await connection_manager.broadcast(data)
+                elif msg_type == 'chat':
+                    await connection_manager.send_to_operators(device_id, data)
                 
-                elif data.get('type') == 'file_transfer':
-                    file_id = data.get('file_id') or data.get('upload_id')
-                    if file_id:
-                        file_transfers[file_id] = {
-                            **data,
-                            "device_id": device_id,
-                            "received_at": datetime.now().isoformat()
-                        }
+                elif msg_type in {'file_transfer', 'system_info', 'pong', 'input_ack'}:
+                    if msg_type == 'file_transfer':
+                        file_id = data.get('file_id') or data.get('upload_id')
+                        if file_id:
+                            file_transfers[file_id] = {
+                                **data,
+                                "device_id": device_id,
+                                "received_at": datetime.now().isoformat()
+                            }
+                    await connection_manager.send_to_operators(device_id, {
+                        **data,
+                        "device_id": device_id
+                    })
                 
-                logger.debug(f"Message from {device_id}: {data.get('type')}")
+                logger.debug(f"Message from {device_id}: {msg_type}")
                 
             except json.JSONDecodeError:
                 logger.error("Invalid JSON received")
@@ -386,13 +526,13 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Option
     
     except WebSocketDisconnect:
         connection_manager.disconnect(device_id)
-        connected_devices[device_id]['is_online'] = False
-        connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
+        if device_id in connected_devices:
+            connected_devices[device_id]['is_online'] = False
+            connected_devices[device_id]['last_seen'] = datetime.now().isoformat()
+            _persist_device(device_id)
         
         logger.info(f"Device disconnected: {device_id}")
-        
-        # Broadcast device offline status
-        await connection_manager.broadcast({
+        await connection_manager.send_to_operators(device_id, {
             "type": "device_offline",
             "device_id": device_id,
             "timestamp": datetime.now().isoformat()
@@ -401,7 +541,115 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Option
     except Exception as e:
         logger.error(f"WebSocket error for {device_id}: {e}")
         connection_manager.disconnect(device_id)
-        connected_devices[device_id]['is_online'] = False
+        if device_id in connected_devices:
+            connected_devices[device_id]['is_online'] = False
+            _persist_device(device_id)
+
+
+@app.websocket("/ws/operator/{device_id}")
+async def operator_websocket(websocket: WebSocket, device_id: str, token: Optional[str] = None):
+    """Operator/viewer websocket used by the remote session page."""
+    try:
+        payload = security_manager.verify_token(token or "")
+        if payload.get("type") != "access":
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        if device_id not in connected_devices:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        if connected_devices[device_id]["user_id"] != payload.get("sub"):
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+    except ValueError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await connection_manager.connect_operator(websocket, device_id)
+    is_online = device_id in connection_manager.active_connections
+    await websocket.send_json({
+        "type": "session_ready",
+        "device_id": device_id,
+        "device_name": connected_devices[device_id]["device_name"],
+        "is_online": is_online,
+    })
+    latest = latest_screenshots.get(device_id)
+    if latest:
+        await websocket.send_json({"type": "screen_capture", **latest})
+    if is_online:
+        await connection_manager.send_to(device_id, {"type": "start_stream"})
+    else:
+        await websocket.send_json({
+            "type": "device_offline",
+            "device_id": device_id,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
+            if msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+            if msg_type in {"input", "execute_command", "screenshot", "start_stream", "stop_stream", "chat"}:
+                sent = await connection_manager.send_to(device_id, data)
+                if not sent:
+                    await websocket.send_json({
+                        "type": "device_offline",
+                        "device_id": device_id,
+                        "message": "El agente de la tienda no esta conectado"
+                    })
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.error(f"Operator websocket error for {device_id}: {exc}")
+    finally:
+        connection_manager.disconnect_operator(websocket, device_id)
+        if connection_manager.operator_count(device_id) == 0:
+            await connection_manager.send_to(device_id, {"type": "stop_stream"})
+
+
+@app.get("/api/public-config")
+async def public_config(request: Request):
+    """Public URLs the dashboard uses to generate store installers."""
+    base = str(request.base_url).rstrip("/")
+    return {
+        "status": "success",
+        "app": "AM-CONNECT",
+        "api_base_url": base,
+        "websocket_url": base.replace("https://", "wss://").replace("http://", "ws://") + "/ws",
+        "install_script": f"{base}/install/windows.ps1",
+        "agent_download": f"{base}/install/agent.py",
+    }
+
+
+@app.get("/install/windows.ps1")
+async def install_windows_script():
+    """Windows Always-ON installer served by this server so stores match the running version."""
+    script = SCRIPTS_DIR / "install_from_server.ps1"
+    if not script.exists():
+        raise HTTPException(status_code=404, detail="Installer script not found")
+    return FileResponse(
+        script,
+        media_type="text/plain; charset=utf-8",
+        filename="install_from_server.ps1",
+    )
+
+
+@app.get("/install/agent.py")
+async def install_agent_source():
+    agent = CLIENT_DIR / "agent.py"
+    if not agent.exists():
+        raise HTTPException(status_code=404, detail="Agent source not found")
+    return FileResponse(agent, media_type="text/plain; charset=utf-8", filename="agent.py")
+
+
+@app.get("/install/agent-requirements.txt")
+async def install_agent_requirements():
+    requirements = SCRIPTS_DIR / "agent-requirements.txt"
+    if not requirements.exists():
+        return PlainTextResponse("aiohttp\npsutil\nmss\npillow\npython-dotenv\npynput\n")
+    return FileResponse(requirements, media_type="text/plain; charset=utf-8")
 
 
 # ===== COMMAND EXECUTION =====
@@ -652,16 +900,15 @@ if __name__ == "__main__":
             logger.warning("Run 'python generate_certs.py' to generate them")
             use_ssl = False
     
+    scheme = "https" if use_ssl else "http"
     logger.info(f"Starting AM-CONNECT Server on {host}:{port}")
     logger.info(f"SSL/TLS: {'Enabled' if use_ssl else 'Disabled'}")
-    logger.info(f"Dashboard: http://localhost:3000")
+    logger.info(f"Dashboard: {scheme}://localhost:{port}")
     
-    # Run server
     uvicorn.run(
-        "main:app",
+        app,
         host=host,
         port=port,
-        reload=os.getenv('DEBUG', 'false').lower() == 'true',
         ssl_keyfile=ssl_keyfile if use_ssl else None,
         ssl_certfile=ssl_certfile if use_ssl else None,
         log_level="info"

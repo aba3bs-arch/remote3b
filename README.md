@@ -1,4 +1,24 @@
-# 🔐 AM-CONNECT - Authorized Remote Access for 3B
+# 🔐 AM-CONNECT - Acceso remoto gratis para las tiendas 3B
+
+**AM-CONNECT** es tu alternativa a RemotePC: un panel web para ver las PCs de las tiendas, conectarte sin pagar suscripcion y dejar el agente Always-ON.
+
+## Como usarlo sin pagar
+
+1. En una PC de oficina que no se apague, arranca el servidor:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   USE_SSL=false python server/main.py
+   ```
+2. Abre `http://localhost:8000`, crea un usuario e inicia sesion.
+3. Pulsa **Agregar equipo / Descargar agente**, pon el nombre de la tienda (por ejemplo `3B7 Del Valle`) y copia el comando PowerShell.
+4. En la computadora de la tienda, pega ese comando. El agente se instala, se conecta y queda en Inicio de Windows (Always-ON).
+5. En el panel, cuando el equipo aparezca **En linea**, pulsa **Conectar**. Veras la pantalla y puedes usar mouse y teclado.
+
+No hace falta abrir puertos en las tiendas: el agente sale hacia tu servidor. Si quieres entrar al panel desde internet, usa un tunel gratis como Cloudflare Tunnel apuntando a `localhost:8000`.
+
+---
 
 **AM-CONNECT** is an authorized remote access platform for exclusive 3B use, designed to manage approved devices with enterprise-grade security features.
 

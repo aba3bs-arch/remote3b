@@ -87,13 +87,12 @@ button {
   background: #fff;
 }
 
-.screen-image {
-  position: absolute;
-  inset: 34px 0 0;
-  width: 100%;
-  height: calc(100% - 34px);
-  object-fit: contain;
-  background: #000;
+.screen-image.is-control {
+  cursor: crosshair;
+}
+
+.toolbar-actions button.is-active {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .screen-status {
