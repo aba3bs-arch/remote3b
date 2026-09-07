@@ -3,78 +3,100 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AM-CONNECT by 3B</title>
+    <title>AM-CONNECT</title>
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
-    <div class="rpc-app">
-      <header class="rpc-header">
-        <div class="rpc-brand">
-          <span class="rpc-mark" aria-hidden="true"></span>
-          <span class="rpc-title">AM-CONNECT</span>
-          <span class="rpc-by">by 3B</span>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-name">AM-CONNECT</span>
         </div>
-        <span class="rpc-version">1.0.0</span>
-        <div class="rpc-header-actions">
-          <button id="addComputerButton" class="header-link" type="button">Agregar computadora</button>
-          <button id="accountButton" class="avatar" type="button" aria-label="Cuenta">A</button>
-          <button id="settingsButton" class="icon-plain" type="button" aria-label="Configuracion">⚙</button>
-          <button id="helpButton" class="icon-plain" type="button" aria-label="Ayuda">?</button>
-        </div>
+        <span class="plan-pill">Always-ON · 3B</span>
+        <button id="addComputerButton" class="top-action primary" type="button">Agregar equipo / Descargar</button>
+        <div class="language">ES ▾</div>
+        <button id="accountButton" class="avatar" type="button" aria-label="Cuenta">A</button>
       </header>
 
-      <section class="rpc-toolbar">
-        <button id="modeAlwaysOn" class="mode-dropdown is-active" type="button">Acceso remoto Always-ON ▾</button>
-        <label class="rpc-search">
-          <span class="search-icon" aria-hidden="true">⌕</span>
-          <input id="searchInput" type="search" placeholder="" />
-        </label>
-        <button id="refreshButton" class="icon-plain refresh-btn" type="button" aria-label="Actualizar">↻</button>
-        <button id="modeAttended" class="mode-dropdown" type="button">Acceso atendido ▾</button>
-      </section>
+      <aside class="sidebar" aria-label="Navegacion principal">
+        <nav>
+          <a class="nav-item active" href="#computers" data-view="computers"><span>▣</span>Computadoras</a>
+          <a class="nav-item" href="#files" data-view="files"><span>▤</span>Acceso a archivos</a>
+          <a class="nav-item" href="#attended" data-view="attended"><span>▥</span>Acceso atendido</a>
+          <a class="nav-item" href="#logs" data-view="logs"><span>▧</span>Registros</a>
+          <a class="nav-item" href="#account" data-view="account"><span>♙</span>Mi cuenta</a>
+          <a class="nav-item" href="#rdp" data-view="rdp"><span>◉</span>Conector RDP</a>
+          <a class="nav-item" href="#help" id="helpNav" data-view="help"><span>✚</span>HelpDesk</a>
+          <div class="nav-group">
+            <button class="nav-item group-title" type="button"><span>☁</span>Backup <span class="chevron">⌄</span></button>
+            <a class="nav-item nested" href="#computer-backup">Backup de computadoras</a>
+            <a class="nav-item nested" href="#workspace">Google Workspace</a>
+            <a class="nav-item nested" href="#m365">Microsoft 365</a>
+          </div>
+          <a class="nav-item" href="#meeting" data-view="meeting"><span>☏</span>Reuniones</a>
+        </nav>
+      </aside>
 
-      <p id="dataSource" class="status-banner">Inicia sesion para ver las computadoras de tus tiendas.</p>
-
-      <main class="rpc-list" id="alwaysOnView">
-        <section class="computer-group" id="recentGroup">
-          <button class="group-toggle" id="recentToggle" type="button" aria-expanded="true">
-            <span>Accedidas recientemente (<span id="recentCount">0</span>)</span>
-            <span class="chevron">▾</span>
-          </button>
-          <ul id="recentList" class="computer-items"></ul>
+      <main class="content" id="computersView">
+        <section class="page-toolbar">
+          <div class="page-title">
+            <h1>Computadoras</h1>
+          </div>
+          <div class="usage-text">
+            <span>Computadoras usadas:</span>
+            <strong id="usedCount">0</strong>
+          </div>
+          <button id="tokenButton" class="computer-filter" type="button">Computadoras ▾</button>
+          <label class="search-box" aria-label="Buscar computadoras">
+            <input id="searchInput" type="search" placeholder="Buscar" />
+          </label>
         </section>
 
-        <section class="computer-group" id="allGroup">
-          <button class="group-toggle" id="allToggle" type="button" aria-expanded="true">
-            <span>Mis computadoras (<span id="usedCount">0</span>)</span>
-            <span class="chevron">▾</span>
-          </button>
-          <ul id="computerList" class="computer-items"></ul>
+        <section class="safety-note" role="note">
+          <p id="dataSource">Inicia sesion para ver las computadoras de tus tiendas.</p>
+          <span>Solo equipos de 3B o con permiso explicito.</span>
+        </section>
+
+        <section class="computer-panel" aria-labelledby="computerListTitle">
+          <div class="panel-header">
+            <p class="muted">Haz clic en <strong>Connect</strong> para entrar a una tienda en linea.</p>
+            <div class="panel-actions">
+              <button id="exportButton" class="link-button" type="button">Export Computer List</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <caption id="computerListTitle">Lista de equipos</caption>
+              <thead>
+                <tr>
+                  <th>Computer Name</th>
+                  <th></th>
+                  <th>Accessed</th>
+                  <th aria-label="Backup"></th>
+                </tr>
+              </thead>
+              <tbody id="computerRows"></tbody>
+            </table>
+          </div>
         </section>
       </main>
 
-      <main class="attended-view" id="attendedView" hidden>
-        <div class="attended-card">
-          <h2>Acceso atendido</h2>
-          <p>
-            Usa Always-ON para las tiendas: el agente queda instalado y puedes entrar aunque no haya nadie frente a la PC.
-            El acceso atendido es para una sesion puntual, cuando alguien en la tienda puede confirmar.
-          </p>
-          <p class="muted">Para tiendas 3B, deja el agente instalado con inicio automatico de Windows.</p>
-          <button id="attendedBackButton" class="primary-action" type="button">Volver a Always-ON</button>
-        </div>
+      <main class="content alt-view" id="attendedView" hidden>
+        <section class="page-toolbar">
+          <h1>Acceso atendido</h1>
+        </section>
+        <article class="info-card">
+          <p>Para las tiendas usa Always-ON: instalas el ejecutable del agente una vez y puedes entrar aunque no haya nadie frente a la PC.</p>
+          <button id="attendedBackButton" class="primary-action" type="button">Volver a Computadoras</button>
+        </article>
       </main>
-
-      <footer class="rpc-footer">
-        <span>Configura esta computadora para acceso remoto Always-ON</span>
-        <button id="configureNowButton" type="button">Configurar ahora!</button>
-      </footer>
     </div>
 
     <dialog id="tokenDialog">
       <form method="dialog" class="dialog-card">
         <h2>Iniciar sesion</h2>
-        <p class="muted">Crea una cuenta gratis o entra para ver las PCs de tus tiendas. No hay suscripcion.</p>
+        <p class="muted">Crea una cuenta gratis. No hay suscripcion.</p>
         <label>
           Usuario
           <input id="usernameInput" type="text" autocomplete="username" placeholder="admin" />
@@ -106,15 +128,15 @@
         </details>
         <div class="dialog-actions">
           <button value="cancel" class="outline-button" type="submit">Cancelar</button>
-          <button id="saveTokenButton" value="default" class="primary-action" type="button">Guardar y cargar</button>
+          <button id="saveTokenButton" class="primary-action" type="button">Guardar y cargar</button>
         </div>
       </form>
     </dialog>
 
     <dialog id="addDialog">
       <form method="dialog" class="dialog-card">
-        <h2>Agregar computadora de tienda</h2>
-        <p class="muted">Ponle el nombre de la sucursal, por ejemplo 3B7 Del Valle. Luego corre el instalador en esa PC.</p>
+        <h2>Agregar equipo / Descargar</h2>
+        <p class="muted">Nombra la sucursal y descarga el ejecutable. En la PC de la tienda no hace falta instalar Python.</p>
         <label>
           Nombre del equipo
           <input id="newDeviceName" type="text" placeholder="3B7 Del Valle" />
@@ -128,27 +150,29 @@
         </label>
         <p id="addMessage" class="muted"></p>
         <label>
-          Comando para pegar en PowerShell de la tienda
+          Comando o instalador
           <textarea id="installerCommand" rows="5" readonly placeholder="El comando aparecera aqui despues de registrar el equipo."></textarea>
         </label>
         <div class="dialog-actions">
           <button value="cancel" class="outline-button" type="submit">Cerrar</button>
           <button id="copyInstallerButton" class="outline-button" type="button">Copiar comando</button>
-          <button id="registerDeviceButton" class="primary-action" type="button">Registrar y generar instalador</button>
+          <a id="downloadAgentButton" class="outline-button" href="/download/agent.exe" hidden>Descargar agente .exe</a>
+          <button id="registerDeviceButton" class="primary-action" type="button">Registrar y generar</button>
         </div>
       </form>
     </dialog>
 
     <dialog id="helpDialog">
       <form method="dialog" class="dialog-card">
-        <h2>Como conectar tus tiendas sin pagar</h2>
+        <h2>Como abrir AM-CONNECT</h2>
         <ol class="help-steps">
-          <li>Crea tu usuario e inicia sesion en este panel.</li>
-          <li>Pulsa <strong>Agregar computadora</strong> y nombra la sucursal.</li>
-          <li>En la PC de la tienda, abre PowerShell y pega el comando. Eso instala el agente Always-ON.</li>
-          <li>Cuando el icono se ponga verde, haz doble clic para ver y controlar la pantalla.</li>
+          <li>En tu PC, abre <strong>AM-CONNECT.exe</strong>. El panel se abre solo en el navegador.</li>
+          <li>Crea usuario e inicia sesion.</li>
+          <li>Pulsa <strong>Agregar equipo / Descargar</strong> y nombra la sucursal.</li>
+          <li>En la tienda corre el instalador o el <strong>AM-CONNECT-Agent.exe</strong>.</li>
+          <li>Cuando el punto este verde, pulsa <strong>Connect</strong>.</li>
         </ol>
-        <p class="muted">El agente solo debe instalarse en equipos de 3B o con permiso explicito del dueno.</p>
+        <p class="muted">Si localhost:8000 no carga, no abras esa direccion a mano: usa el ejecutable y deja la ventana de AM-CONNECT abierta.</p>
         <div class="dialog-actions">
           <button value="cancel" class="primary-action" type="submit">Entendido</button>
         </div>
