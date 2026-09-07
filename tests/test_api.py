@@ -42,6 +42,12 @@ def test_dashboard_and_session_pages():
     assert home.status_code == 200
     assert "AM-CONNECT" in home.text
     assert "Always-ON" in home.text
+    assert "Connect" in home.text
+    assert "Computadoras" in home.text
+
+    downloads = client.get("/api/downloads")
+    assert downloads.status_code == 200
+    assert "agent_exe" in downloads.json()
 
     session = client.get("/session")
     assert session.status_code == 200
@@ -74,6 +80,7 @@ def test_register_store_computer_and_installer():
     assert script.status_code == 200
     assert "AM-CONNECT Always-ON" in script.text
     assert device_id in script.text
+    assert "AM-CONNECT-Agent.exe" in script.text
 
     agent = client.get("/install/agent.py")
     assert agent.status_code == 200

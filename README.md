@@ -1,6 +1,15 @@
 # AM-CONNECT - Acceso remoto gratis para tiendas 3B
 
-**AM-CONNECT** es tu alternativa gratis a RemotePC para ver y controlar las computadoras de tus sucursales. No hay suscripcion: instalas el servidor una vez y en cada tienda corre un agente Always-ON.
+**AM-CONNECT** es tu alternativa gratis a RemotePC para ver y controlar las computadoras de tus sucursales. No hay suscripcion.
+
+## Como abrir la app (sin Python)
+
+1. En GitHub, abre **Actions → Build Windows executables** y descarga el artefacto `am-connect-windows`.
+2. En tu PC, doble clic en **AM-CONNECT.exe**.
+3. Se abre una ventana "AM-CONNECT esta abierto" y el panel en el navegador. **No cierres esa ventana.**
+4. No escribas `localhost:8000` a mano: el ejecutable abre el panel solo.
+
+En cada tienda, desde el panel pulsa **Agregar equipo / Descargar** y corre el comando. Si el artefacto incluye **AM-CONNECT-Agent.exe**, la tienda tampoco necesita Python.
 
 ## Como usarlo en las tiendas
 
@@ -106,7 +115,7 @@ cp .env.example .env
 source venv/bin/activate
 python server/main.py
 ```
-Server available at `https://localhost:8000`
+Server available at `http://127.0.0.1:8000`
 
 ### Terminal 2: Start Client
 ```bash
@@ -115,7 +124,7 @@ python client/agent.py
 ```
 
 ### Open Dashboard
-Open `https://localhost:8000` or `https://localhost:8000/dashboard` in your browser.
+Open `http://127.0.0.1:8000` in your browser.
 The dashboard includes a RemotePC-style Always-ON computer list, recently accessed
 stores, search, and a one-command Windows installer per store computer.
 Starting a connection opens `/session` with live screen streaming and mouse/keyboard
