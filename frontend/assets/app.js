@@ -405,8 +405,14 @@ tokenButton.addEventListener("click", () => {
   tokenDialog.showModal();
 });
 
-loginButton.addEventListener("click", loginWithCredentials);
 registerButton.addEventListener("click", registerUser);
+tokenDialog.querySelector("form").addEventListener("submit", (event) => {
+  if (event.submitter && event.submitter.value === "cancel") {
+    return;
+  }
+  event.preventDefault();
+  loginWithCredentials();
+});
 
 saveTokenButton.addEventListener("click", () => {
   const token = tokenInput.value.trim();
