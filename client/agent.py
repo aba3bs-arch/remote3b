@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote3B Client Agent - Remote device client
+AM-CONNECT Client Agent - authorized remote device client
 Connects to server and executes commands, captures screen, transfers files, etc.
 """
 
@@ -157,6 +157,8 @@ class RemoteAgent:
                 await self._handle_command(message)
             elif msg_type == 'file_download':
                 await self._handle_file_download(message)
+            elif msg_type == 'file_upload':
+                await self._handle_file_upload(message)
             elif msg_type == 'screenshot':
                 await self._handle_screenshot(message)
             elif msg_type == 'ping':
@@ -230,7 +232,7 @@ class RemoteAgent:
                 screenshot = sct.grab(monitor)
                 
                 # Convert to PIL Image
-                img = Image.frombytes('RGBA', screenshot.size, screenshot.rgb)
+                img = Image.frombytes('RGB', screenshot.size, screenshot.rgb)
                 
                 # Compress and encode
                 buffer = BytesIO()
@@ -286,6 +288,42 @@ class RemoteAgent:
                 'file_id': file_id,
                 'status': 'error',
                 'error': str(e)
+            })
+
+    async def _handle_file_upload(self, message: Dict) -> None:
+        """
+        Save an uploaded file into the configured AM-CONNECT uploads folder.
+
+        The server sends only a filename, not an absolute destination path, so
+        uploads cannot overwrite arbitrary files on the remote device.
+        """
+        upload_id = message.get('upload_id')
+        filename = Path(message.get('filename', 'upload.bin')).name
+        content = message.get('content', '')
+        upload_dir = Path(os.getenv('AM_CONNECT_UPLOAD_DIR', 'client/downloads')).resolve()
+
+        try:
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            destination = upload_dir / filename
+            destination.write_bytes(base64.b64decode(content.encode()))
+
+            await self.send_message({
+                'type': 'file_transfer',
+                'upload_id': upload_id,
+                'filename': filename,
+                'saved_path': str(destination),
+                'size': destination.stat().st_size,
+                'status': 'success',
+                'timestamp': datetime.now().isoformat()
+            })
+        except Exception as e:
+            await self.send_message({
+                'type': 'file_transfer',
+                'upload_id': upload_id,
+                'filename': filename,
+                'status': 'error',
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
             })
     
     async def _handle_ping(self, message: Dict) -> None:
@@ -360,7 +398,7 @@ async def main():
     # Initialize and run agent
     agent = RemoteAgent(server_url, device_id, device_name, device_token)
     
-    logger.info(f"Starting Remote3B Agent")
+    logger.info(f"Starting AM-CONNECT Agent")
     logger.info(f"  Device ID: {device_id}")
     logger.info(f"  Device Name: {device_name}")
     logger.info(f"  Server: {server_url}")

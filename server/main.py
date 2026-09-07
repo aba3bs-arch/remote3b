@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote3B Server - Professional RAT Backend
+AM-CONNECT Server - authorized remote access backend
 Handles multiple device connections via WebSocket with TLS encryption and JWT authentication
 """
 
@@ -8,13 +8,17 @@ import os
 import json
 import asyncio
 import logging
+import secrets
+import base64
 from datetime import datetime
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, status
+from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 import uvicorn
 from dotenv import load_dotenv
 
@@ -33,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Remote3B Server",
-    description="Professional Remote Access Tool with TLS, 2FA and Video Recording",
+    title="AM-CONNECT Server",
+    description="Authorized remote access for 3B with TLS, 2FA and video recording",
     version="1.0.0"
 )
 
@@ -54,6 +58,66 @@ security_manager = SecurityManager()
 
 # Store connected devices
 connected_devices: Dict[str, dict] = {}
+latest_screenshots: Dict[str, dict] = {}
+file_transfers: Dict[str, dict] = {}
+audit_events = []
+BASE_DIR = Path(__file__).resolve().parent.parent
+DASHBOARD_DIR = BASE_DIR / "frontend"
+ASSETS_DIR = DASHBOARD_DIR / "assets"
+
+if ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
+
+
+class FileUploadPayload(BaseModel):
+    """Payload for uploading a file to an authorized remote device."""
+
+    filename: str = Field(..., min_length=1, max_length=255)
+    content_base64: str = Field(..., min_length=1)
+
+
+def _authorization_token(authorization: Optional[str]) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+    return authorization.replace('Bearer ', '')
+
+
+def _current_user_payload(authorization: Optional[str]) -> dict:
+    try:
+        payload = security_manager.verify_token(_authorization_token(authorization))
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+    if payload.get('type') != 'access':
+        raise HTTPException(status_code=403, detail="Access token required")
+    return payload
+
+
+def _current_user_id(authorization: Optional[str]) -> str:
+    return _current_user_payload(authorization)['sub']
+
+
+def _require_device_access(device_id: str, authorization: Optional[str]) -> str:
+    user_id = _current_user_id(authorization)
+    if device_id not in connected_devices:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    if connected_devices[device_id]['user_id'] != user_id:
+        raise HTTPException(status_code=403, detail="Device is not assigned to this user")
+    return user_id
+
+
+def _record_audit(action: str, user_id: str, device_id: Optional[str] = None, details: Optional[dict] = None) -> None:
+    audit_events.append({
+        "action": action,
+        "user_id": user_id,
+        "device_id": device_id,
+        "details": details or {},
+        "timestamp": datetime.now().isoformat(),
+    })
+
+    # Keep the in-memory audit list bounded for long-running development sessions.
+    del audit_events[:-100]
 
 
 # ===== HEALTH CHECK =====
@@ -66,6 +130,31 @@ async def health_check():
         "connected_devices": len(connected_devices),
         "version": "1.0.0"
     }
+
+
+# ===== DASHBOARD =====
+@app.get("/")
+async def dashboard_home():
+    """Serve the web dashboard."""
+    index_file = DASHBOARD_DIR / "index.html"
+    if not index_file.exists():
+        raise HTTPException(status_code=404, detail="Dashboard frontend not found")
+    return FileResponse(index_file)
+
+
+@app.get("/dashboard")
+async def dashboard():
+    """Serve the web dashboard from a dedicated route."""
+    return await dashboard_home()
+
+
+@app.get("/session")
+async def remote_session():
+    """Serve the remote session viewer shell."""
+    session_file = DASHBOARD_DIR / "session.html"
+    if not session_file.exists():
+        raise HTTPException(status_code=404, detail="Session frontend not found")
+    return FileResponse(session_file)
 
 
 # ===== AUTHENTICATION ENDPOINTS =====
@@ -138,24 +227,22 @@ async def confirm_2fa(user_id: str, totp_code: str):
 async def register_device(device_name: str, os: str, authorization: str = Header(None)):
     """Register a new device"""
     try:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing authorization token")
-        
-        user = security_manager.verify_token(authorization.replace('Bearer ', ''))
+        user_id = _current_user_id(authorization)
         
         device_id = f"device_{len(connected_devices) + 1:03d}"
-        device_token = security_manager.create_device_token(device_id, user['id'])
+        device_token = security_manager.create_device_token(device_id, user_id)
         
         connected_devices[device_id] = {
             "device_name": device_name,
             "os": os,
-            "user_id": user['id'],
+            "user_id": user_id,
             "is_online": False,
             "created_at": datetime.now().isoformat(),
             "last_seen": None
         }
         
         logger.info(f"Device registered: {device_id}")
+        _record_audit("device_registered", user_id, device_id, {"device_name": device_name, "os": os})
         
         return {
             "status": "success",
@@ -163,6 +250,8 @@ async def register_device(device_name: str, os: str, authorization: str = Header
             "device_token": device_token,
             "message": "Device registered successfully"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error registering device: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -172,10 +261,7 @@ async def register_device(device_name: str, os: str, authorization: str = Header
 async def list_devices(authorization: str = Header(None)):
     """List all devices"""
     try:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing authorization token")
-        
-        user = security_manager.verify_token(authorization.replace('Bearer ', ''))
+        user_id = _current_user_id(authorization)
         
         devices = [
             {
@@ -184,7 +270,7 @@ async def list_devices(authorization: str = Header(None)):
                 "is_online": dev_id in connection_manager.active_connections
             }
             for dev_id, device_info in connected_devices.items()
-            if device_info['user_id'] == user['id']
+            if device_info['user_id'] == user_id
         ]
         
         return {
@@ -192,6 +278,8 @@ async def list_devices(authorization: str = Header(None)):
             "devices": devices,
             "total": len(devices)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error listing devices: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -201,11 +289,7 @@ async def list_devices(authorization: str = Header(None)):
 async def device_status(device_id: str, authorization: str = Header(None)):
     """Get device status"""
     try:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing authorization token")
-        
-        if device_id not in connected_devices:
-            raise HTTPException(status_code=404, detail="Device not found")
+        _require_device_access(device_id, authorization)
         
         device = connected_devices[device_id]
         
@@ -227,7 +311,7 @@ async def device_status(device_id: str, authorization: str = Header(None)):
 
 # ===== WEBSOCKET ENDPOINT =====
 @app.websocket("/ws/{device_id}")
-async def websocket_endpoint(websocket: WebSocket, device_id: str):
+async def websocket_endpoint(websocket: WebSocket, device_id: str, token: Optional[str] = None):
     """
     WebSocket endpoint for device communication
     Handles real-time communication between control panel and devices
@@ -235,6 +319,15 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str):
     try:
         # Verify device exists
         if device_id not in connected_devices:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        try:
+            device_payload = security_manager.verify_token(token or "")
+            if device_payload.get('type') != 'device' or device_payload.get('sub') != device_id:
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+        except ValueError:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
         
@@ -259,7 +352,13 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str):
                 
                 # Process message based on type
                 if data.get('type') == 'screen_capture':
-                    await connection_manager.broadcast(data)
+                    latest_screenshots[device_id] = {
+                        "device_id": device_id,
+                        "image": data.get('image'),
+                        "width": data.get('width'),
+                        "height": data.get('height'),
+                        "timestamp": data.get('timestamp') or datetime.now().isoformat()
+                    }
                 
                 elif data.get('type') == 'command_response':
                     # Route to specific controller
@@ -271,7 +370,13 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str):
                     await connection_manager.broadcast(data)
                 
                 elif data.get('type') == 'file_transfer':
-                    await connection_manager.broadcast(data)
+                    file_id = data.get('file_id') or data.get('upload_id')
+                    if file_id:
+                        file_transfers[file_id] = {
+                            **data,
+                            "device_id": device_id,
+                            "received_at": datetime.now().isoformat()
+                        }
                 
                 logger.debug(f"Message from {device_id}: {data.get('type')}")
                 
@@ -304,11 +409,7 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str):
 async def execute_command(device_id: str, command: str, authorization: str = Header(None)):
     """Execute command on remote device"""
     try:
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing authorization token")
-        
-        if device_id not in connected_devices:
-            raise HTTPException(status_code=404, detail="Device not found")
+        user_id = _require_device_access(device_id, authorization)
         
         if device_id not in connection_manager.active_connections:
             raise HTTPException(status_code=503, detail="Device is offline")
@@ -321,6 +422,7 @@ async def execute_command(device_id: str, command: str, authorization: str = Hea
             "command": command,
             "command_id": command_id
         })
+        _record_audit("command_requested", user_id, device_id, {"command_id": command_id})
         
         return {
             "status": "success",
@@ -333,6 +435,189 @@ async def execute_command(device_id: str, command: str, authorization: str = Hea
     except Exception as e:
         logger.error(f"Error executing command: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ===== SCREEN VIEWER =====
+@app.post("/api/devices/{device_id}/screenshot")
+async def request_screenshot(device_id: str, authorization: str = Header(None)):
+    """Request a fresh screenshot from an authorized online device."""
+    user_id = _require_device_access(device_id, authorization)
+
+    if device_id not in connection_manager.active_connections:
+        raise HTTPException(status_code=503, detail="Device is offline")
+
+    request_id = f"shot_{secrets.token_hex(8)}"
+    sent = await connection_manager.send_to(device_id, {
+        "type": "screenshot",
+        "request_id": request_id,
+        "timestamp": datetime.now().isoformat()
+    })
+
+    if not sent:
+        raise HTTPException(status_code=503, detail="Unable to reach device")
+
+    _record_audit("screenshot_requested", user_id, device_id, {"request_id": request_id})
+    return {
+        "status": "success",
+        "message": "Screenshot requested",
+        "request_id": request_id,
+        "device_id": device_id
+    }
+
+
+@app.get("/api/devices/{device_id}/screenshot/latest")
+async def latest_screenshot(device_id: str, authorization: str = Header(None)):
+    """Return the latest screenshot captured for an authorized device."""
+    _require_device_access(device_id, authorization)
+
+    screenshot = latest_screenshots.get(device_id)
+    if not screenshot:
+        raise HTTPException(status_code=404, detail="No screenshot available yet")
+
+    return {
+        "status": "success",
+        **screenshot
+    }
+
+
+# ===== FILE TRANSFER =====
+@app.post("/api/devices/{device_id}/files/download")
+async def request_file_download(device_id: str, filepath: str, authorization: str = Header(None)):
+    """Request a file from an authorized online device."""
+    user_id = _require_device_access(device_id, authorization)
+
+    if device_id not in connection_manager.active_connections:
+        raise HTTPException(status_code=503, detail="Device is offline")
+
+    file_id = f"file_{secrets.token_hex(8)}"
+    file_transfers[file_id] = {
+        "type": "file_transfer",
+        "file_id": file_id,
+        "device_id": device_id,
+        "filepath": filepath,
+        "status": "pending",
+        "requested_at": datetime.now().isoformat()
+    }
+
+    sent = await connection_manager.send_to(device_id, {
+        "type": "file_download",
+        "filepath": filepath,
+        "file_id": file_id
+    })
+
+    if not sent:
+        file_transfers[file_id]["status"] = "error"
+        file_transfers[file_id]["error"] = "Unable to reach device"
+        raise HTTPException(status_code=503, detail="Unable to reach device")
+
+    _record_audit("file_download_requested", user_id, device_id, {"file_id": file_id, "filepath": filepath})
+    return {
+        "status": "pending",
+        "message": "File download requested",
+        "file_id": file_id,
+        "device_id": device_id
+    }
+
+
+@app.post("/api/devices/{device_id}/files/upload")
+async def request_file_upload(
+    device_id: str,
+    payload: FileUploadPayload = Body(...),
+    authorization: str = Header(None)
+):
+    """Upload a file to the authorized device's configured AM-CONNECT uploads folder."""
+    user_id = _require_device_access(device_id, authorization)
+
+    if device_id not in connection_manager.active_connections:
+        raise HTTPException(status_code=503, detail="Device is offline")
+
+    try:
+        base64.b64decode(payload.content_base64.encode(), validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="content_base64 must be valid base64")
+
+    safe_filename = Path(payload.filename).name
+    if not safe_filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    upload_id = f"upload_{secrets.token_hex(8)}"
+    file_transfers[upload_id] = {
+        "type": "file_upload",
+        "upload_id": upload_id,
+        "device_id": device_id,
+        "filename": safe_filename,
+        "status": "pending",
+        "requested_at": datetime.now().isoformat()
+    }
+
+    sent = await connection_manager.send_to(device_id, {
+        "type": "file_upload",
+        "upload_id": upload_id,
+        "filename": safe_filename,
+        "content": payload.content_base64
+    })
+
+    if not sent:
+        file_transfers[upload_id]["status"] = "error"
+        file_transfers[upload_id]["error"] = "Unable to reach device"
+        raise HTTPException(status_code=503, detail="Unable to reach device")
+
+    _record_audit("file_upload_requested", user_id, device_id, {"upload_id": upload_id, "filename": safe_filename})
+    return {
+        "status": "pending",
+        "message": "File upload requested",
+        "upload_id": upload_id,
+        "device_id": device_id
+    }
+
+
+@app.get("/api/files/{file_id}")
+async def file_transfer_status(file_id: str, authorization: str = Header(None)):
+    """Return file transfer status and content when available."""
+    user_id = _current_user_id(authorization)
+    transfer = file_transfers.get(file_id)
+    if not transfer:
+        raise HTTPException(status_code=404, detail="File transfer not found")
+
+    device_id = transfer.get("device_id")
+    if device_id not in connected_devices or connected_devices[device_id]["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="File transfer is not assigned to this user")
+
+    return {
+        "status": "success",
+        "transfer": transfer
+    }
+
+
+# ===== ADMIN PANEL DATA =====
+@app.get("/api/admin/summary")
+async def admin_summary(authorization: str = Header(None)):
+    """Return authorized dashboard metrics for the current user."""
+    user_id = _current_user_id(authorization)
+    user_devices = {
+        dev_id: info
+        for dev_id, info in connected_devices.items()
+        if info["user_id"] == user_id
+    }
+    online_devices = [dev_id for dev_id in user_devices if dev_id in connection_manager.active_connections]
+    user_events = [event for event in audit_events if event["user_id"] == user_id][-20:]
+    user_transfers = [
+        transfer
+        for transfer in file_transfers.values()
+        if transfer.get("device_id") in user_devices
+    ]
+
+    return {
+        "status": "success",
+        "summary": {
+            "total_devices": len(user_devices),
+            "online_devices": len(online_devices),
+            "offline_devices": len(user_devices) - len(online_devices),
+            "stored_screenshots": len([dev_id for dev_id in user_devices if dev_id in latest_screenshots]),
+            "file_transfers": len(user_transfers),
+            "recent_events": list(reversed(user_events))
+        }
+    }
 
 
 # ===== ERROR HANDLERS =====
@@ -367,7 +652,7 @@ if __name__ == "__main__":
             logger.warning("Run 'python generate_certs.py' to generate them")
             use_ssl = False
     
-    logger.info(f"Starting Remote3B Server on {host}:{port}")
+    logger.info(f"Starting AM-CONNECT Server on {host}:{port}")
     logger.info(f"SSL/TLS: {'Enabled' if use_ssl else 'Disabled'}")
     logger.info(f"Dashboard: http://localhost:3000")
     

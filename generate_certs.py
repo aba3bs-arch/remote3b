@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate self-signed TLS certificates for Remote3B
+Generate self-signed TLS certificates for AM-CONNECT
 Used for WebSocket encryption
 """
 
@@ -59,7 +59,7 @@ def generate_self_signed_cert(
         x509.NameAttribute(NameOID.COUNTRY_NAME, u"US"),
         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"CA"),
         x509.NameAttribute(NameOID.LOCALITY_NAME, u"San Francisco"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Remote3B"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"AM-CONNECT"),
         x509.NameAttribute(NameOID.COMMON_NAME, hostname),
     ])
     

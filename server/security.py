@@ -21,7 +21,7 @@ from cryptography.fernet import Fernet
 
 class SecurityManager:
     """
-    Comprehensive security management for Remote3B
+    Comprehensive security management for AM-CONNECT
     Handles user authentication, token generation, 2FA, and data encryption
     """
     
@@ -299,7 +299,7 @@ class SecurityManager:
         totp = pyotp.TOTP(secret)
         uri = totp.provisioning_uri(
             name=user['email'],
-            issuer_name=os.getenv('TOTP_ISSUER', 'Remote3B')
+            issuer_name=os.getenv('TOTP_ISSUER', 'AM-CONNECT')
         )
         
         qr = qrcode.QRCode()

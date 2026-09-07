@@ -1,6 +1,6 @@
-# 🔐 Remote3B - Professional RAT with TLS, 2FA and Video Recording
+# 🔐 AM-CONNECT - Authorized Remote Access for 3B
 
-**Remote3B** is a professional Remote Access Tool designed for total control of multiple devices with enterprise-grade security features.
+**AM-CONNECT** is an authorized remote access platform for exclusive 3B use, designed to manage approved devices with enterprise-grade security features.
 
 ## ✨ Key Features
 
@@ -27,7 +27,7 @@
 - Automatic reconnection
 
 ### 🎨 Professional Interface
-- Modern React dashboard
+- Built-in web dashboard served by FastAPI
 - Live screen viewer
 - Remote terminal
 - File manager
@@ -37,7 +37,7 @@
 ## 🏗️ Architecture
 
 ```
-Remote3B/
+AM-CONNECT/
 ├── server/                 # FastAPI Backend
 │   ├── main.py            # Main server
 │   ├── security.py        # Security module (TLS, JWT, 2FA)
@@ -48,11 +48,11 @@ Remote3B/
 ├── client/                # Remote agent
 │   └── agent.py           # Client that runs on devices
 │
-├── frontend/              # React UI
-│   └── src/
-│       ├── pages/
-│       ├── components/
-│       └── App.jsx
+├── frontend/              # Static web dashboard
+│   ├── index.html
+│   └── assets/
+│       ├── app.js
+│       └── styles.css
 │
 └── generate_certs.py      # TLS certificate generator
 ```
@@ -61,7 +61,6 @@ Remote3B/
 
 ### Prerequisites
 - Python 3.8+
-- Node.js 16+ (for frontend)
 - OpenSSL (for TLS certificates)
 
 ### Steps
@@ -105,13 +104,28 @@ source venv/bin/activate
 python client/agent.py
 ```
 
-### Terminal 3: Start Frontend
-```bash
-cd frontend
-npm install
-npm start
-```
-Open `http://localhost:3000` in your browser
+### Open Dashboard
+Open `https://localhost:8000` or `https://localhost:8000/dashboard` in your browser.
+The dashboard includes a RemotePC-style computer list, search, export, connection actions,
+and an optional API token field to load real devices from `GET /api/devices`.
+Starting a connection opens `/session`, a remote-view shell with a collapsible operator
+toolbar that is local to the control panel and not part of the remote screen content.
+The session view can request real screenshots from the authorized agent, download remote
+files, upload files into the agent's configured AM-CONNECT uploads folder, and show admin
+metrics/audit events for the authenticated user.
+
+## ☁️ Deploy on Render + Netlify
+
+Use Render for the FastAPI/WebSocket backend and Netlify for the static dashboard.
+See [DEPLOYMENT_RENDER_NETLIFY.md](DEPLOYMENT_RENDER_NETLIFY.md) for the full setup,
+including `AM_CONNECT_API_BASE_URL`, Render environment variables, and the remote
+agent `wss://.../ws` URL.
+
+## 🖥️ Install agents on Windows computers
+
+Use [INSTALL_AGENT_WINDOWS.md](INSTALL_AGENT_WINDOWS.md) for a copy/paste PowerShell
+installer that configures `SERVER_URL`, `DEVICE_ID`, `DEVICE_TOKEN`, dependencies,
+and optional visible startup shortcut for authorized machines.
 
 ## 🔐 Security Features
 
@@ -279,7 +293,7 @@ export DEVICE_ID=device_002
 export DEVICE_TOKEN=eyJ0eXAiOiJKV1QiLCJhbGc...
 python client/agent.py
 
-# 3. View in control panel (http://localhost:3000)
+# 3. View in control panel (https://localhost:8000/dashboard)
 # Device appears as connected
 ```
 
@@ -305,7 +319,7 @@ MIT License - See LICENSE.md
 
 ## ⚠️ Legal Notice
 
-**Remote3B** is a professional remote access tool. Should only be used:
+**AM-CONNECT** is an authorized 3B remote access tool. Should only be used:
 
 - ✅ With explicit consent of the device owner
 - ✅ For legitimate administration and maintenance purposes

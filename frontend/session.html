@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sesion remota - AM-CONNECT</title>
+    <link rel="stylesheet" href="/assets/session.css" />
+  </head>
+  <body>
+    <main class="session-shell">
+      <section class="remote-stage" aria-label="Pantalla remota">
+        <div class="browser-frame">
+          <div class="browser-tabs">
+            <span class="browser-dot"></span>
+            <span class="browser-dot"></span>
+            <span class="tab-title" id="remoteTabTitle">Usuario</span>
+          </div>
+          <div class="remote-app" id="remotePlaceholder">
+            <div class="remote-sidebar"></div>
+            <div class="remote-content">
+              <div class="remote-header"></div>
+              <div class="remote-line wide"></div>
+              <div class="remote-line"></div>
+              <div class="remote-grid">
+                <span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+          <img id="screenImage" class="screen-image" alt="Captura de pantalla remota" hidden />
+          <div id="screenStatus" class="screen-status">Esperando captura autorizada...</div>
+        </div>
+      </section>
+
+      <section class="operator-toolbar" id="operatorToolbar" aria-label="Barra local del operador">
+        <div class="toolbar-main">
+          <div class="toolbar-device">
+            <span class="brand-ring" aria-hidden="true"></span>
+            <button class="device-button" id="deviceButton" type="button">
+              <span id="deviceName">Equipo conectado</span>
+              <span aria-hidden="true">v</span>
+            </button>
+          </div>
+
+          <div class="toolbar-actions" aria-label="Herramientas de sesion">
+            <button id="refreshScreenButton" type="button" title="Actualizar pantalla">PC</button>
+            <button type="button" title="Informacion">i</button>
+            <button type="button" title="Audio">Vol</button>
+            <button type="button" title="Pantalla completa">Full</button>
+            <button id="liveToggleButton" type="button" title="Activar visor en vivo">Live</button>
+            <button type="button" title="Chat">Chat</button>
+            <button type="button" title="Anotar">Pen</button>
+            <button type="button" title="Zoom">Zoom</button>
+            <button type="button" title="Captura">Cam</button>
+            <button id="filePanelButton" type="button" title="Archivos">File</button>
+            <button type="button" title="Teclado">Keys</button>
+            <button type="button" title="Vista">View</button>
+            <button id="adminPanelButton" type="button" title="Administracion">Admin</button>
+          </div>
+
+          <button class="collapse-button" id="collapseButton" type="button" aria-expanded="true">
+            <span class="collapse-icon" aria-hidden="true"></span>
+            <span class="sr-only">Ocultar barra</span>
+          </button>
+        </div>
+
+        <div class="device-menu" id="deviceMenu" hidden>
+          <button type="button">Cambiar equipo</button>
+          <button type="button">Calidad: Automatica</button>
+          <button type="button">Finalizar sesion</button>
+        </div>
+      </section>
+
+      <button class="restore-tab" id="restoreTab" type="button" hidden>
+        Mostrar barra
+      </button>
+
+      <aside class="operator-note">
+        Esta barra pertenece al panel del operador. No se dibuja dentro de la pantalla remota.
+      </aside>
+
+      <aside class="local-panel" id="filePanel" hidden>
+        <header>
+          <h2>Transferencia de archivos</h2>
+          <button class="panel-close" data-close-panel="filePanel" type="button">Cerrar</button>
+        </header>
+        <label>
+          Ruta remota para descargar
+          <input id="downloadPathInput" type="text" placeholder="/home/usuario/documento.txt" />
+        </label>
+        <button id="downloadFileButton" class="panel-primary" type="button">Solicitar descarga</button>
+        <label>
+          Subir archivo al equipo
+          <input id="uploadFileInput" type="file" />
+        </label>
+        <button id="uploadFileButton" class="panel-primary" type="button">Subir a carpeta AM-CONNECT</button>
+        <p id="fileTransferStatus" class="panel-status">Las transferencias requieren token valido y equipo online.</p>
+      </aside>
+
+      <aside class="local-panel admin-local-panel" id="adminPanel" hidden>
+        <header>
+          <h2>Administracion</h2>
+          <button class="panel-close" data-close-panel="adminPanel" type="button">Cerrar</button>
+        </header>
+        <div class="admin-session-metrics">
+          <span>Total <strong id="sessionAdminTotal">0</strong></span>
+          <span>Online <strong id="sessionAdminOnline">0</strong></span>
+          <span>Capturas <strong id="sessionAdminScreens">0</strong></span>
+          <span>Transferencias <strong id="sessionAdminTransfers">0</strong></span>
+        </div>
+        <ul id="sessionAuditEvents" class="session-audit-events"></ul>
+      </aside>
+    </main>
+
+    <script src="/assets/config.js"></script>
+    <script src="/assets/session.js"></script>
+  </body>
+</html>

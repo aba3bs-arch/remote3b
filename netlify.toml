@@ -1,0 +1,22 @@
+[build]
+  base = "."
+  publish = "frontend"
+  command = "python3 scripts/write_frontend_config.py"
+
+[build.environment]
+  PYTHON_VERSION = "3.12"
+
+[[redirects]]
+  from = "/dashboard"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/session"
+  to = "/session.html"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: am-connect-api
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: "pip install -r requirements-render.txt"
+    startCommand: "python server/main.py"
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: USE_SSL
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: TOTP_ISSUER
+        value: AM-CONNECT
+      - key: AM_CONNECT_UPLOAD_DIR
+        value: client/downloads

@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Remote3B Installation Script
+# AM-CONNECT Installation Script
 # Installs all dependencies and configures the application
 
 set -e
 
 echo "======================================"
-echo "  Remote3B - Installation Script"
+echo "  AM-CONNECT - Installation Script"
 echo "======================================"
 echo ""
 
@@ -78,7 +78,7 @@ echo "   source venv/bin/activate"
 echo "   python client/agent.py"
 echo ""
 echo "4. Open the dashboard:"
-echo "   http://localhost:3000"
+echo "   https://localhost:8000/dashboard"
 echo ""
 echo "For more information, see README.md"
 echo ""
