@@ -102,7 +102,7 @@ function Get-Python {
 }
 
 $InstallDir = "$env:LOCALAPPDATA\AM-CONNECT\agent"
-$ZipUrl = "https://github.com/aba3bs-arch/remote3b/archive/refs/heads/cursor/remote-access-dashboard-3dae.zip"
+$ZipUrl = "https://github.com/aba3bs-arch/remote3b/archive/refs/heads/main.zip"
 $ZipFile = "$env:TEMP\am-connect-agent.zip"
 $ExtractDir = "$env:TEMP\am-connect-agent"
 $WsUrl = Normalize-ServerUrl $ServerUrl
@@ -180,7 +180,7 @@ $VenvPython = "$InstallDir\.venv\Scripts\python.exe"
 $VenvPip = "$InstallDir\.venv\Scripts\pip.exe"
 
 & $VenvPython -m pip install --upgrade pip
-& $VenvPip install aiohttp psutil mss pillow python-dotenv
+& $VenvPip install aiohttp psutil mss pillow python-dotenv pynput
 
 @"
 SERVER_URL=$WsUrl

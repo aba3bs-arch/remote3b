@@ -1,102 +1,89 @@
+const TOKEN_STORAGE_KEY = "am_connect_api_token";
+const API_BASE_URL = (window.AM_CONNECT_CONFIG?.apiBaseUrl || "").replace(/\/$/, "");
+
 const sampleDevices = [
   {
     device_id: "device_001",
     device_name: "3B Fusion",
     os: "Windows",
     is_online: true,
-    in_session: true,
-    last_seen: "Hace 3 minutos",
+    last_accessed: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
   },
   {
     device_id: "device_002",
     device_name: "3B10 ElMezquite",
     os: "Windows",
     is_online: true,
-    in_session: false,
-    last_seen: "Hace 8 horas",
+    last_accessed: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
   },
   {
     device_id: "device_003",
     device_name: "3B2 pueblo nuevo",
     os: "Windows",
-    is_online: true,
-    in_session: false,
-    last_seen: "Hace 3 dias",
+    is_online: false,
+    connection_error: "Fallo de conexion",
+    last_accessed: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
   },
   {
     device_id: "device_004",
     device_name: "3B5 Lomas Dos",
     os: "Windows",
     is_online: true,
-    in_session: false,
-    last_seen: "Hace 3 dias",
+    last_accessed: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
   },
   {
     device_id: "device_005",
     device_name: "3B6 Soli",
     os: "Windows",
-    is_online: true,
-    in_session: false,
-    last_seen: "Hace 18 horas",
+    is_online: false,
+    connection_error: "Fallo de conexion",
+    last_accessed: new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString(),
   },
   {
     device_id: "device_006",
     device_name: "3B7 Del Valle",
     os: "Windows",
     is_online: true,
-    in_session: false,
-    last_seen: "Hace 4 dias",
+    last_accessed: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
   },
   {
     device_id: "device_007",
     device_name: "3B9 B. Aires",
     os: "Windows",
     is_online: true,
-    in_session: false,
-    last_seen: "Hace 5 dias",
   },
   {
     device_id: "device_008",
     device_name: "EastTexas",
     os: "Windows",
     is_online: false,
-    in_session: false,
-    last_seen: "Hace 9 horas",
   },
   {
     device_id: "device_009",
     device_name: "TabletAcacia",
     os: "Windows",
     is_online: false,
-    in_session: false,
-    last_seen: "12 Nov 2024, 14:38:30",
   },
 ];
-
-const TOKEN_STORAGE_KEY = "am_connect_api_token";
-const API_BASE_URL = (window.AM_CONNECT_CONFIG?.apiBaseUrl || "").replace(/\/$/, "");
 
 const state = {
   devices: [],
   selectedId: null,
   filter: "",
   usingApi: false,
+  username: "",
 };
 
-const rows = document.querySelector("#computerRows");
+const computerList = document.querySelector("#computerList");
+const recentList = document.querySelector("#recentList");
 const searchInput = document.querySelector("#searchInput");
 const dataSource = document.querySelector("#dataSource");
 const usedCount = document.querySelector("#usedCount");
-const onlineCount = document.querySelector("#onlineCount");
-const sessionCount = document.querySelector("#sessionCount");
-const offlineCount = document.querySelector("#offlineCount");
-const selectedName = document.querySelector("#selectedName");
-const selectedMeta = document.querySelector("#selectedMeta");
-const connectButton = document.querySelector("#connectButton");
-const filesButton = document.querySelector("#filesButton");
-const auditButton = document.querySelector("#auditButton");
+const recentCount = document.querySelector("#recentCount");
 const tokenDialog = document.querySelector("#tokenDialog");
-const tokenButton = document.querySelector("#tokenButton");
+const addDialog = document.querySelector("#addDialog");
+const helpDialog = document.querySelector("#helpDialog");
+const tokenButton = document.querySelector("#accountButton");
 const tokenInput = document.querySelector("#tokenInput");
 const saveTokenButton = document.querySelector("#saveTokenButton");
 const usernameInput = document.querySelector("#usernameInput");
@@ -106,26 +93,19 @@ const totpInput = document.querySelector("#totpInput");
 const loginButton = document.querySelector("#loginButton");
 const registerButton = document.querySelector("#registerButton");
 const authMessage = document.querySelector("#authMessage");
-const authState = document.querySelector("#authState");
-const adminTotal = document.querySelector("#adminTotal");
-const adminOnline = document.querySelector("#adminOnline");
-const adminScreens = document.querySelector("#adminScreens");
-const adminTransfers = document.querySelector("#adminTransfers");
-const auditEvents = document.querySelector("#auditEvents");
-const exportButton = document.querySelector("#exportButton");
+const addMessage = document.querySelector("#addMessage");
+const newDeviceName = document.querySelector("#newDeviceName");
+const newDeviceOs = document.querySelector("#newDeviceOs");
+const installerCommand = document.querySelector("#installerCommand");
+const accountButton = document.querySelector("#accountButton");
 
-function statusLabel(device) {
-  if (device.in_session) {
-    return "En sesion";
-  }
-  return device.is_online ? "En linea" : "Sin conexion";
-}
-
-function statusClass(device) {
-  if (device.in_session) {
-    return "session";
-  }
-  return device.is_online ? "online" : "offline";
+function windowsIconSvg(isOnline) {
+  const fill = isOnline ? "#00adef" : "#9aa4ab";
+  return `
+    <svg class="windows-icon ${isOnline ? "" : "offline"}" viewBox="0 0 88 88" aria-hidden="true">
+      <path fill="${fill}" d="M0 12.5 36 7.6v33.2H0zm40-6.2L88 0v40.4H40zM0 47.2h36v33.2L0 75.4zm40 .4h48V88l-48-7.2z"/>
+    </svg>
+  `;
 }
 
 function escapeHtml(value) {
@@ -137,34 +117,16 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function formatLastSeen(device) {
-  if (!device.last_seen) {
-    return "Sin actividad registrada";
-  }
-
-  if (device.last_seen.startsWith("Hace") || device.last_seen.includes(",")) {
-    return device.last_seen;
-  }
-
-  const date = new Date(device.last_seen);
-  if (Number.isNaN(date.getTime())) {
-    return device.last_seen;
-  }
-
-  return new Intl.DateTimeFormat("es", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function normalizeApiDevice(device) {
   return {
     device_id: device.device_id,
     device_name: device.device_name || device.device_id,
-    os: device.os || "Desconocido",
+    os: device.os || "Windows",
     is_online: Boolean(device.is_online),
     in_session: Boolean(device.in_session),
-    last_seen: device.last_seen || device.created_at,
+    last_seen: device.last_seen,
+    last_accessed: device.last_accessed,
+    connection_error: device.connection_error,
   };
 }
 
@@ -188,7 +150,7 @@ async function apiRequest(url, options = {}) {
     const text = await response.text();
     if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
       throw new Error(
-        "El frontend esta recibiendo HTML en vez de JSON. Configura AM_CONNECT_API_BASE_URL en Netlify con la URL de Render y redeploy."
+        "El frontend esta recibiendo HTML en vez de JSON. Configura AM_CONNECT_API_BASE_URL."
       );
     }
     throw new Error(`Respuesta inesperada del servidor (${contentType || "sin content-type"}).`);
@@ -206,103 +168,82 @@ function filteredDevices() {
   if (!query) {
     return state.devices;
   }
-
-  return state.devices.filter((device) => {
-    return [device.device_name, device.os, statusLabel(device), formatLastSeen(device)]
-      .join(" ")
-      .toLowerCase()
-      .includes(query);
-  });
+  return state.devices.filter((device) => device.device_name.toLowerCase().includes(query));
 }
 
-function renderRows() {
-  const devices = filteredDevices();
-  rows.innerHTML = "";
+function recentDevices() {
+  return filteredDevices()
+    .filter((device) => device.last_accessed)
+    .sort((a, b) => new Date(b.last_accessed) - new Date(a.last_accessed))
+    .slice(0, 5);
+}
 
+function renderItem(device) {
+  const item = document.createElement("li");
+  item.className = `computer-item${device.device_id === state.selectedId ? " selected" : ""}`;
+  const failure = !device.is_online ? device.connection_error || "Fallo de conexion" : "";
+  item.innerHTML = `
+    <span class="os-badge">
+      ${windowsIconSvg(device.is_online)}
+      ${device.is_online ? '<span class="status-dot"></span>' : ""}
+    </span>
+    <span class="computer-copy">
+      <span class="computer-name">${escapeHtml(device.device_name)}</span>
+      ${failure ? `<div class="failure-text">${escapeHtml(failure)}</div>` : ""}
+    </span>
+    <button class="connect-inline" type="button" ${device.is_online ? "" : "disabled"}>Conectar</button>
+  `;
+  item.addEventListener("click", () => {
+    state.selectedId = device.device_id;
+    render();
+  });
+  item.addEventListener("dblclick", () => openRemoteSession(device));
+  item.querySelector(".connect-inline").addEventListener("click", (event) => {
+    event.stopPropagation();
+    openRemoteSession(device);
+  });
+  return item;
+}
+
+function renderList(target, devices, emptyText) {
+  target.innerHTML = "";
   if (devices.length === 0) {
-    const emptyRow = document.createElement("tr");
-    emptyRow.innerHTML = '<td colspan="4">No se encontraron equipos.</td>';
-    rows.appendChild(emptyRow);
+    const empty = document.createElement("li");
+    empty.className = "empty-row";
+    empty.textContent = emptyText;
+    target.appendChild(empty);
     return;
   }
-
-  devices.forEach((device) => {
-    const row = document.createElement("tr");
-    const os = escapeHtml(device.os);
-    const name = escapeHtml(device.device_name);
-    const status = escapeHtml(statusLabel(device));
-    const lastSeen = escapeHtml(formatLastSeen(device));
-    row.className = device.device_id === state.selectedId ? "selected" : "";
-    row.innerHTML = `
-      <td>
-        <span class="computer-name">
-          <span class="os-icon">${os.slice(0, 1).toUpperCase()}</span>
-          ${name}
-        </span>
-      </td>
-      <td>
-        <div class="status-actions">
-          <button class="connect-small" type="button" ${device.is_online ? "" : "disabled"}>Conectar</button>
-          <span class="status ${statusClass(device)}">${status}</span>
-        </div>
-      </td>
-      <td>${lastSeen}</td>
-      <td><button class="cloud-action" type="button" aria-label="Backup">☁</button></td>
-    `;
-
-    row.addEventListener("click", () => selectDevice(device.device_id));
-    row.querySelector(".connect-small").addEventListener("click", (event) => {
-      event.stopPropagation();
-      selectDevice(device.device_id);
-      openRemoteSession(device);
-    });
-    rows.appendChild(row);
-  });
-}
-
-function renderSummary() {
-  usedCount.textContent = state.devices.length;
-  onlineCount.textContent = state.devices.filter((device) => device.is_online).length;
-  sessionCount.textContent = state.devices.filter((device) => device.in_session).length;
-  offlineCount.textContent = state.devices.filter((device) => !device.is_online).length;
-}
-
-function renderSelected() {
-  const device = state.devices.find((item) => item.device_id === state.selectedId);
-  const hasDevice = Boolean(device);
-  selectedName.textContent = hasDevice ? device.device_name : "Selecciona un equipo";
-  selectedMeta.textContent = hasDevice
-    ? `${statusLabel(device)} · ${device.os} · Ultimo acceso: ${formatLastSeen(device)}`
-    : "Veras aqui los detalles de la sesion y acciones seguras.";
-
-  connectButton.disabled = !hasDevice || !device.is_online;
-  filesButton.disabled = !hasDevice;
-  auditButton.disabled = !hasDevice;
+  devices.forEach((device) => target.appendChild(renderItem(device)));
 }
 
 function render() {
-  renderSummary();
-  renderRows();
-  renderSelected();
-}
-
-function selectDevice(deviceId) {
-  state.selectedId = deviceId;
-  render();
+  const devices = filteredDevices();
+  const recents = recentDevices();
+  usedCount.textContent = state.devices.length;
+  recentCount.textContent = recents.length;
+  renderList(recentList, recents, "Aun no hay sesiones recientes.");
+  renderList(computerList, devices, "No hay computadoras. Agrega la PC de una tienda.");
+  if (state.username) {
+    accountButton.textContent = state.username.slice(0, 1).toUpperCase();
+  }
 }
 
 function openRemoteSession(device) {
   if (!device.is_online) {
-    window.alert("El equipo esta sin conexion. Intenta de nuevo cuando el agente autorizado este en linea.");
+    window.alert("El equipo esta sin conexion. Instala el agente Always-ON en esa PC de tienda.");
     return;
   }
 
   const hasConsent = window.confirm(
     `Confirma que tienes autorizacion para iniciar sesion en ${device.device_name}.`
   );
-
   if (!hasConsent) {
     return;
+  }
+
+  if (state.usingApi) {
+    apiRequest(`/api/devices/${encodeURIComponent(device.device_id)}/access`, { method: "POST" }).catch(() => {});
   }
 
   const query = new URLSearchParams({
@@ -317,9 +258,8 @@ async function loadDevicesFromApi() {
   if (!token) {
     state.devices = sampleDevices;
     state.usingApi = false;
-    dataSource.textContent = "Mostrando datos de ejemplo. Guarda un token para cargar tu API.";
-    authState.textContent = "Sin autenticacion visual. Inicia sesion para ver equipos reales, auditoria y transferencias.";
-    renderAdminSummary(null);
+    state.username = "";
+    dataSource.textContent = "Mostrando ejemplo de tiendas. Inicia sesion para ver tus PCs reales.";
     render();
     return;
   }
@@ -328,51 +268,26 @@ async function loadDevicesFromApi() {
     const payload = await apiRequest("/api/devices");
     state.devices = (payload.devices || []).map(normalizeApiDevice);
     state.usingApi = true;
-    dataSource.textContent = `Mostrando ${state.devices.length} equipos desde la API.`;
-    authState.textContent = "Sesion activa. Panel administrativo sincronizado con la API.";
-    await loadAdminSummary();
+    dataSource.textContent =
+      state.devices.length === 0
+        ? "Sesion activa. Agrega la primera computadora de tienda."
+        : `Mostrando ${state.devices.length} computadoras Always-ON.`;
+    try {
+      const me = await apiRequest("/api/me");
+      state.username = me.user?.username || "";
+    } catch (_error) {
+      state.username = "";
+    }
   } catch (error) {
     state.devices = sampleDevices;
     state.usingApi = false;
-    dataSource.textContent = `No se pudo cargar la API (${error.message}). Mostrando datos de ejemplo.`;
-    authState.textContent = `No se pudo cargar la API (${error.message}).`;
-    renderAdminSummary(null);
+    dataSource.textContent = `No se pudo cargar la API (${error.message}). Mostrando ejemplo.`;
   }
 
-  state.selectedId = state.devices[0]?.device_id || null;
+  if (!state.selectedId || !state.devices.some((device) => device.device_id === state.selectedId)) {
+    state.selectedId = state.devices[0]?.device_id || null;
+  }
   render();
-}
-
-function renderAdminSummary(summary) {
-  adminTotal.textContent = summary?.total_devices ?? 0;
-  adminOnline.textContent = summary?.online_devices ?? 0;
-  adminScreens.textContent = summary?.stored_screenshots ?? 0;
-  adminTransfers.textContent = summary?.file_transfers ?? 0;
-
-  auditEvents.innerHTML = "";
-  const events = summary?.recent_events || [];
-  if (events.length === 0) {
-    const item = document.createElement("li");
-    item.textContent = "Sin eventos recientes.";
-    auditEvents.appendChild(item);
-    return;
-  }
-
-  events.forEach((event) => {
-    const item = document.createElement("li");
-    item.textContent = `${event.timestamp} · ${event.action}${event.device_id ? ` · ${event.device_id}` : ""}`;
-    auditEvents.appendChild(item);
-  });
-}
-
-async function loadAdminSummary() {
-  try {
-    const payload = await apiRequest("/api/admin/summary");
-    renderAdminSummary(payload.summary);
-  } catch (error) {
-    renderAdminSummary(null);
-    authState.textContent = `No se pudo cargar administracion (${error.message}).`;
-  }
 }
 
 async function loginWithCredentials() {
@@ -393,13 +308,14 @@ async function loginWithCredentials() {
   authMessage.textContent = "Autenticando...";
   try {
     const payload = await apiRequest(`/api/auth/login?${params.toString()}`, { method: "POST" });
-
     window.localStorage.setItem(TOKEN_STORAGE_KEY, payload.access_token);
     tokenInput.value = payload.access_token;
     passwordInput.value = "";
     totpInput.value = "";
+    state.username = payload.user.username;
     authMessage.textContent = `Sesion iniciada como ${payload.user.username}.`;
     await loadDevicesFromApi();
+    tokenDialog.close();
   } catch (error) {
     authMessage.textContent = `Error de autenticacion: ${error.message}`;
   }
@@ -419,46 +335,100 @@ async function registerUser() {
   authMessage.textContent = "Creando usuario...";
   try {
     const payload = await apiRequest(`/api/auth/register?${params.toString()}`, { method: "POST" });
-
     authMessage.textContent = `Usuario ${payload.username} creado. Ahora inicia sesion.`;
   } catch (error) {
     authMessage.textContent = `No se pudo crear usuario: ${error.message}`;
   }
 }
 
-function exportDevices() {
-  const header = ["Nombre", "Estado", "Ultimo acceso", "Sistema"];
-  const lines = filteredDevices().map((device) => [
-    device.device_name,
-    statusLabel(device),
-    formatLastSeen(device),
-    device.os,
-  ]);
-  const csv = [header, ...lines]
-    .map((line) => line.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","))
-    .join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "am-connect-computadoras.csv";
-  link.click();
-  URL.revokeObjectURL(url);
+function requireAuthForAction() {
+  if (window.localStorage.getItem(TOKEN_STORAGE_KEY)) {
+    return true;
+  }
+  tokenDialog.showModal();
+  return false;
+}
+
+async function registerStoreComputer() {
+  if (!requireAuthForAction()) {
+    return;
+  }
+
+  const name = newDeviceName.value.trim();
+  if (!name) {
+    addMessage.textContent = "Escribe el nombre de la tienda o de la PC.";
+    return;
+  }
+
+  addMessage.textContent = "Registrando computadora...";
+  try {
+    const params = new URLSearchParams({
+      device_name: name,
+      os: newDeviceOs.value,
+    });
+    const created = await apiRequest(`/api/devices/register?${params.toString()}`, { method: "POST" });
+    const installer = await apiRequest(`/api/devices/${encodeURIComponent(created.device_id)}/installer`);
+    installerCommand.value = installer.command;
+    addMessage.textContent = `${name} registrada. Copia el comando y pegalo en PowerShell de esa PC.`;
+    await loadDevicesFromApi();
+  } catch (error) {
+    addMessage.textContent = `No se pudo registrar: ${error.message}`;
+  }
+}
+
+function setAlwaysOn(enabled) {
+  document.querySelector("#alwaysOnView").hidden = !enabled;
+  document.querySelector("#attendedView").hidden = enabled;
+  document.querySelector("#modeAlwaysOn").classList.toggle("is-active", enabled);
+  document.querySelector("#modeAttended").classList.toggle("is-active", !enabled);
 }
 
 searchInput.addEventListener("input", (event) => {
   state.filter = event.target.value;
-  renderRows();
+  render();
+});
+
+document.querySelector("#refreshButton").addEventListener("click", loadDevicesFromApi);
+document.querySelector("#addComputerButton").addEventListener("click", () => {
+  if (!requireAuthForAction()) {
+    return;
+  }
+  addMessage.textContent = "";
+  installerCommand.value = "";
+  addDialog.showModal();
+});
+document.querySelector("#configureNowButton").addEventListener("click", () => {
+  if (!requireAuthForAction()) {
+    return;
+  }
+  newDeviceName.value = newDeviceName.value || window.location.hostname || "Esta computadora";
+  addDialog.showModal();
+});
+document.querySelector("#helpButton").addEventListener("click", () => helpDialog.showModal());
+document.querySelector("#settingsButton").addEventListener("click", () => {
+  tokenInput.value = window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+  tokenDialog.showModal();
+});
+document.querySelector("#modeAlwaysOn").addEventListener("click", () => setAlwaysOn(true));
+document.querySelector("#modeAttended").addEventListener("click", () => setAlwaysOn(false));
+document.querySelector("#attendedBackButton").addEventListener("click", () => setAlwaysOn(true));
+document.querySelector("#recentToggle").addEventListener("click", () => {
+  const expanded = document.querySelector("#recentToggle").getAttribute("aria-expanded") === "true";
+  document.querySelector("#recentToggle").setAttribute("aria-expanded", String(!expanded));
+  recentList.hidden = expanded;
+});
+document.querySelector("#allToggle").addEventListener("click", () => {
+  const expanded = document.querySelector("#allToggle").getAttribute("aria-expanded") === "true";
+  document.querySelector("#allToggle").setAttribute("aria-expanded", String(!expanded));
+  computerList.hidden = expanded;
 });
 
 tokenButton.addEventListener("click", () => {
   tokenInput.value = window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
   tokenDialog.showModal();
 });
-
 loginButton.addEventListener("click", loginWithCredentials);
 registerButton.addEventListener("click", registerUser);
-
 saveTokenButton.addEventListener("click", () => {
   const token = tokenInput.value.trim();
   if (token) {
@@ -469,30 +439,19 @@ saveTokenButton.addEventListener("click", () => {
   tokenDialog.close();
   loadDevicesFromApi();
 });
-
-connectButton.addEventListener("click", () => {
-  const device = state.devices.find((item) => item.device_id === state.selectedId);
-  if (device) {
-    openRemoteSession(device);
+document.querySelector("#registerDeviceButton").addEventListener("click", registerStoreComputer);
+document.querySelector("#copyInstallerButton").addEventListener("click", async () => {
+  if (!installerCommand.value) {
+    addMessage.textContent = "Primero registra la computadora para generar el comando.";
+    return;
   }
+  await navigator.clipboard.writeText(installerCommand.value);
+  addMessage.textContent = "Comando copiado. Pegalo en PowerShell de la PC de la tienda.";
 });
-
-filesButton.addEventListener("click", () => {
-  const device = state.devices.find((item) => item.device_id === state.selectedId);
-  if (device) {
-    const query = new URLSearchParams({
-      device: device.device_id,
-      name: device.device_name,
-      panel: "files",
-    });
-    window.location.assign(`/session?${query.toString()}`);
-  }
-});
-
-auditButton.addEventListener("click", () => {
-  loadAdminSummary();
-});
-
-exportButton.addEventListener("click", exportDevices);
 
 loadDevicesFromApi();
+window.setInterval(() => {
+  if (state.usingApi) {
+    loadDevicesFromApi();
+  }
+}, 10000);

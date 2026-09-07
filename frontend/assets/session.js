@@ -34,6 +34,8 @@ const sessionAuditEvents = document.querySelector("#sessionAuditEvents");
 
 let liveInterval = null;
 let lastScreenshotTimestamp = null;
+let sessionSocket = null;
+let controlEnabled = true;
 
 deviceNameLabel.textContent = deviceName;
 remoteTabTitle.textContent = deviceName;
@@ -41,6 +43,79 @@ remoteTabTitle.textContent = deviceName;
 function authHeaders() {
   const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function sessionSocketUrl() {
+  const token = window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+  const apiBase = API_BASE_URL || window.location.origin;
+  const wsBase = apiBase.replace(/^http/, "ws");
+  return `${wsBase}/ws/session/${encodeURIComponent(deviceId)}?token=${encodeURIComponent(token)}`;
+}
+
+function relativePoint(event) {
+  const rect = screenImage.getBoundingClientRect();
+  const x = (event.clientX - rect.left) / rect.width;
+  const y = (event.clientY - rect.top) / rect.height;
+  return {
+    x: Math.min(1, Math.max(0, x)),
+    y: Math.min(1, Math.max(0, y)),
+  };
+}
+
+function sendInput(payload) {
+  if (!controlEnabled || !deviceId) {
+    return;
+  }
+  if (sessionSocket && sessionSocket.readyState === WebSocket.OPEN) {
+    sessionSocket.send(JSON.stringify({ type: "input", ...payload }));
+    return;
+  }
+  apiRequest(`/api/devices/${encodeURIComponent(deviceId)}/input`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
+function showRemoteImage(image, width, height, timestamp) {
+  screenImage.src = `data:image/jpeg;base64,${image}`;
+  screenImage.hidden = false;
+  remotePlaceholder.hidden = true;
+  lastScreenshotTimestamp = timestamp;
+  screenStatus.textContent = `Pantalla en vivo ${width || "?"}x${height || "?"} · control de mouse y teclado activo`;
+}
+
+function connectSessionSocket() {
+  if (!deviceId) {
+    screenStatus.textContent = "Falta el identificador del equipo.";
+    return;
+  }
+  const previous = sessionSocket;
+  screenStatus.textContent = "Conectando sesion remota...";
+  const socket = new WebSocket(sessionSocketUrl());
+  sessionSocket = socket;
+  if (previous && previous.readyState < 2) {
+    previous.close();
+  }
+  socket.addEventListener("open", () => {
+    screenStatus.textContent = "Sesion conectada. Esperando pantalla de la tienda...";
+  });
+  socket.addEventListener("message", (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === "screen_capture" && data.image) {
+      showRemoteImage(data.image, data.width, data.height, data.timestamp);
+    } else if (data.type === "device_offline") {
+      screenStatus.textContent = "El agente de la tienda se desconecto.";
+    } else if (data.type === "agent_error") {
+      screenStatus.textContent = data.error || "Fallo de conexion";
+    }
+  });
+  socket.addEventListener("close", () => {
+    if (sessionSocket === socket) {
+      screenStatus.textContent = "La sesion se cerro. Reintentando...";
+      window.setTimeout(connectSessionSocket, 2000);
+    }
+  });
 }
 
 async function apiRequest(url, options = {}) {
@@ -85,6 +160,13 @@ restoreTab.addEventListener("click", () => {
 
 deviceButton.addEventListener("click", () => {
   deviceMenu.hidden = !deviceMenu.hidden;
+});
+
+deviceMenu.addEventListener("click", (event) => {
+  const label = event.target.textContent || "";
+  if (label.includes("Cambiar equipo") || label.includes("Finalizar")) {
+    window.location.assign("/");
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -308,4 +390,76 @@ if (initialPanel === "files") {
   showPanel(filePanel);
 }
 
+screenImage.addEventListener("mousedown", (event) => {
+  event.preventDefault();
+  screenImage.focus();
+  const point = relativePoint(event);
+  sendInput({
+    event: "mouse_down",
+    button: event.button === 2 ? "right" : event.button === 1 ? "middle" : "left",
+    x: point.x,
+    y: point.y,
+  });
+});
+
+screenImage.addEventListener("mouseup", (event) => {
+  const point = relativePoint(event);
+  sendInput({
+    event: "mouse_up",
+    button: event.button === 2 ? "right" : event.button === 1 ? "middle" : "left",
+    x: point.x,
+    y: point.y,
+  });
+});
+
+screenImage.addEventListener("mousemove", (event) => {
+  if (event.buttons === 0) {
+    return;
+  }
+  const point = relativePoint(event);
+  sendInput({
+    event: "mouse_move",
+    button: "left",
+    x: point.x,
+    y: point.y,
+  });
+});
+
+screenImage.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  sendInput({
+    event: "scroll",
+    dx: Math.sign(event.deltaX),
+    dy: -Math.sign(event.deltaY),
+  });
+}, { passive: false });
+
+screenImage.addEventListener("contextmenu", (event) => event.preventDefault());
+screenImage.tabIndex = 0;
+
+document.addEventListener("keydown", (event) => {
+  if (filePanel.hidden === false || adminPanel.hidden === false) {
+    return;
+  }
+  if (event.target.closest("input, textarea")) {
+    return;
+  }
+  event.preventDefault();
+  sendInput({
+    event: "key_down",
+    key: event.key,
+  });
+});
+
+document.addEventListener("keyup", (event) => {
+  if (event.target.closest("input, textarea")) {
+    return;
+  }
+  sendInput({
+    event: "key_up",
+    key: event.key,
+  });
+});
+
+connectSessionSocket();
 loadLatestScreenshot();

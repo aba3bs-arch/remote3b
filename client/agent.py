@@ -68,6 +68,28 @@ class RemoteAgent:
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 10
         self.reconnect_delay = 5  # seconds
+        self.streaming = False
+        self.stream_quality = 55
+        self._session = None
+        self._stream_task = None
+        self._heartbeat_task = None
+        self._mouse = None
+        self._keyboard = None
+        self._input_ready = False
+        self._monitor = None
+        self._init_input()
+
+    def _init_input(self) -> None:
+        try:
+            from pynput.mouse import Controller as MouseController
+            from pynput.keyboard import Controller as KeyboardController
+
+            self._mouse = MouseController()
+            self._keyboard = KeyboardController()
+            self._input_ready = True
+        except Exception as exc:
+            logger.warning(f"Remote input unavailable: {exc}")
+            self._input_ready = False
     
     async def connect(self) -> bool:
         """
@@ -82,17 +104,20 @@ class RemoteAgent:
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
             
+            if self._session and not self._session.closed:
+                await self._session.close()
             connector = aiohttp.TCPConnector(ssl=ssl_context)
-            session = aiohttp.ClientSession(connector=connector)
+            self._session = aiohttp.ClientSession(connector=connector)
             
             ws_url = f"{self.server_url}/{self.device_id}?token={self.device_token}"
             logger.info(f"Connecting to {ws_url}")
             
-            self.websocket = await session.ws_connect(ws_url)
+            self.websocket = await self._session.ws_connect(ws_url)
             self.connected = True
             self.reconnect_attempts = 0
             
             logger.info(f"Connected to server as {self.device_id}")
+            await self.send_system_info()
             return True
         
         except Exception as e:
@@ -108,6 +133,9 @@ class RemoteAgent:
             await self.websocket.close()
             self.connected = False
             logger.info("Disconnected from server")
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
     
     async def run(self) -> None:
         """
@@ -124,6 +152,9 @@ class RemoteAgent:
                         logger.warning(f"Reconnecting in {wait_time} seconds...")
                         await asyncio.sleep(wait_time)
                         continue
+
+                self._stream_task = asyncio.create_task(self._stream_loop())
+                self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
                 
                 # Listen for messages
                 async for msg in self.websocket:
@@ -137,11 +168,38 @@ class RemoteAgent:
                         logger.warning("WebSocket closed")
                         self.connected = False
                         break
+
+                self._cancel_background_tasks()
             
             except Exception as e:
                 logger.error(f"Error in agent loop: {e}")
                 self.connected = False
+                self._cancel_background_tasks()
                 await asyncio.sleep(1)
+
+    def _cancel_background_tasks(self) -> None:
+        for task in (self._stream_task, self._heartbeat_task):
+            if task is not None:
+                task.cancel()
+        self._stream_task = None
+        self._heartbeat_task = None
+
+    async def _stream_loop(self) -> None:
+        while self.connected:
+            if self.streaming:
+                await self._handle_screenshot({"quality": self.stream_quality})
+                await asyncio.sleep(0.45)
+            else:
+                await asyncio.sleep(0.4)
+
+    async def _heartbeat_loop(self) -> None:
+        while self.connected:
+            await self.send_message({
+                "type": "heartbeat",
+                "device_id": self.device_id,
+                "timestamp": datetime.now().isoformat(),
+            })
+            await asyncio.sleep(15)
     
     async def _handle_message(self, message: Dict) -> None:
         """
@@ -161,6 +219,14 @@ class RemoteAgent:
                 await self._handle_file_upload(message)
             elif msg_type == 'screenshot':
                 await self._handle_screenshot(message)
+            elif msg_type == 'start_stream':
+                self.stream_quality = int(message.get('quality') or 55)
+                self.streaming = True
+                await self._handle_screenshot(message)
+            elif msg_type == 'stop_stream':
+                self.streaming = False
+            elif msg_type == 'input':
+                await self._handle_input(message)
             elif msg_type == 'ping':
                 await self._handle_ping(message)
             else:
@@ -229,22 +295,24 @@ class RemoteAgent:
             # Capture screen
             with mss.mss() as sct:
                 monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                self._monitor = monitor
                 screenshot = sct.grab(monitor)
                 
                 # Convert to PIL Image
                 img = Image.frombytes('RGB', screenshot.size, screenshot.rgb)
+                img.thumbnail((1400, 900), Image.LANCZOS)
                 
-                # Compress and encode
+                quality = int(message.get('quality') or self.stream_quality or 80)
                 buffer = BytesIO()
-                img.save(buffer, format='JPEG', quality=80)
+                img.save(buffer, format='JPEG', quality=max(35, min(quality, 85)))
                 img_base64 = base64.b64encode(buffer.getvalue()).decode()
                 
                 # Send screenshot
                 await self.send_message({
                     'type': 'screen_capture',
                     'image': img_base64,
-                    'width': screenshot.width,
-                    'height': screenshot.height,
+                    'width': img.width,
+                    'height': img.height,
                     'timestamp': datetime.now().isoformat()
                 })
                 
@@ -252,6 +320,90 @@ class RemoteAgent:
         
         except Exception as e:
             logger.error(f"Error capturing screenshot: {e}")
+            await self.send_message({
+                'type': 'agent_error',
+                'error': f'No se pudo capturar pantalla: {e}',
+                'timestamp': datetime.now().isoformat()
+            })
+
+    async def _handle_input(self, message: Dict) -> None:
+        """Inject authorized mouse/keyboard events on this computer."""
+        if not self._input_ready:
+            logger.warning("Input requested but pynput is not available")
+            return
+
+        event = message.get('event')
+        try:
+            if event in {'mouse_move', 'mouse_down', 'mouse_up', 'click'}:
+                self._apply_mouse_position(message.get('x'), message.get('y'))
+            if event in {'mouse_down', 'click'}:
+                self._mouse.press(self._mouse_button(message.get('button')))
+            if event in {'mouse_up', 'click'}:
+                self._mouse.release(self._mouse_button(message.get('button')))
+            if event == 'scroll':
+                self._mouse.scroll(int(message.get('dx') or 0), int(message.get('dy') or 0))
+            if event in {'key_down', 'key_up', 'key'}:
+                key = self._keyboard_key(message.get('key'))
+                if event == 'key_up':
+                    self._keyboard.release(key)
+                else:
+                    self._keyboard.press(key)
+                    if event == 'key':
+                        self._keyboard.release(key)
+        except Exception as exc:
+            logger.error(f"Error injecting input: {exc}")
+
+    def _apply_mouse_position(self, rel_x, rel_y) -> None:
+        if rel_x is None or rel_y is None:
+            return
+        monitor = self._monitor or {"left": 0, "top": 0, "width": 1920, "height": 1080}
+        x = int(monitor.get('left', 0) + float(rel_x) * monitor.get('width', 1))
+        y = int(monitor.get('top', 0) + float(rel_y) * monitor.get('height', 1))
+        self._mouse.position = (x, y)
+
+    def _mouse_button(self, name: Optional[str]):
+        from pynput.mouse import Button
+        mapping = {
+            "left": Button.left,
+            "right": Button.right,
+            "middle": Button.middle,
+        }
+        return mapping.get((name or "left").lower(), Button.left)
+
+    def _keyboard_key(self, name: Optional[str]):
+        from pynput.keyboard import Key
+        if not name:
+            return ""
+        special = {
+            "enter": Key.enter,
+            "return": Key.enter,
+            "tab": Key.tab,
+            "esc": Key.esc,
+            "escape": Key.esc,
+            "backspace": Key.backspace,
+            "delete": Key.delete,
+            "space": Key.space,
+            "shift": Key.shift,
+            "ctrl": Key.ctrl,
+            "control": Key.ctrl,
+            "alt": Key.alt,
+            "meta": Key.cmd,
+            "cmd": Key.cmd,
+            "up": Key.up,
+            "down": Key.down,
+            "left": Key.left,
+            "right": Key.right,
+            "home": Key.home,
+            "end": Key.end,
+            "pageup": Key.page_up,
+            "pagedown": Key.page_down,
+        }
+        lowered = str(name).lower()
+        if lowered in special:
+            return special[lowered]
+        if lowered.startswith("f") and lowered[1:].isdigit():
+            return getattr(Key, lowered, name)
+        return name if len(name) == 1 else name
     
     async def _handle_file_download(self, message: Dict) -> None:
         """

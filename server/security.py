@@ -25,20 +25,25 @@ class SecurityManager:
     Handles user authentication, token generation, 2FA, and data encryption
     """
     
-    def __init__(self):
+    def __init__(self, store=None):
         self.secret_key = os.getenv('SECRET_KEY', 'dev-key-change-in-production')
         self.algorithm = os.getenv('ALGORITHM', 'HS256')
-        self.access_token_expire = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 30))
+        self.access_token_expire = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 720))
         self.refresh_token_expire = int(os.getenv('REFRESH_TOKEN_EXPIRE_DAYS', 7))
+        self.store = store
         
-        # In-memory user store (replace with database in production)
-        self.users = {}
+        # File-backed user store when available
+        self.users = store.users() if store is not None else {}
         self.devices = {}
         self.refresh_tokens = {}
         
         # Encryption key for sensitive data
         self.encryption_key = os.getenv('ENCRYPTION_KEY', Fernet.generate_key().decode())
         self.cipher = Fernet(self.encryption_key.encode() if isinstance(self.encryption_key, str) else self.encryption_key)
+
+    def persist(self) -> None:
+        if self.store is not None:
+            self.store.save()
     
     # ===== PASSWORD SECURITY =====
     
@@ -138,6 +143,7 @@ class SecurityManager:
         }
         
         self.users[username] = user
+        self.persist()
         return user
     
     def login_user(self, username: str, password: str, totp_code: Optional[str] = None) -> Tuple[Dict, Dict]:
@@ -179,6 +185,7 @@ class SecurityManager:
         
         # Update last login
         user['last_login'] = datetime.now().isoformat()
+        self.persist()
         
         return user, {
             'access_token': access_token,
@@ -310,6 +317,7 @@ class SecurityManager:
         buffer = BytesIO()
         img.save(buffer, format='PNG')
         qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+        self.persist()
         
         return secret, f"data:image/png;base64,{qr_code_base64}"
     
@@ -335,6 +343,7 @@ class SecurityManager:
             raise ValueError("Invalid 2FA code")
         
         user['two_factor_enabled'] = True
+        self.persist()
         return True
     
     def verify_totp(self, secret: str, totp_code: str, window: int = 1) -> bool:

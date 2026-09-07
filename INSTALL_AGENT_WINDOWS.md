@@ -1,12 +1,23 @@
 # Install AM-CONNECT Agent on Windows
 
-Use this on each authorized remote computer you want to connect to AM-CONNECT.
+The easiest path is from the AM-CONNECT dashboard:
 
-## What you need first
+1. Sign in.
+2. Click **Agregar computadora** and name the store PC.
+3. Copy the generated PowerShell command.
+4. On the store computer, paste it into PowerShell.
+
+That command downloads a pre-filled installer from `/install/windows.ps1`, installs the
+agent under `%LOCALAPPDATA%\AM-CONNECT\agent`, starts it, and adds a visible Startup
+shortcut named `AM-CONNECT Agent`.
+
+## Manual installer
+
+Use this on each authorized remote computer if you already have a Device ID and token.
 
 From the AM-CONNECT admin panel/API, get:
 
-- Render backend URL, for example:
+- Backend URL, for example:
 
 ```txt
 https://am-connect-api.onrender.com
@@ -31,7 +42,7 @@ Open **PowerShell** on the remote computer and run:
 ```powershell
 $installer = "$env:TEMP\install_agent_windows.ps1"
 Invoke-WebRequest `
-  -Uri "https://raw.githubusercontent.com/aba3bs-arch/remote3b/cursor/remote-access-dashboard-3dae/scripts/install_agent_windows.ps1" `
+  -Uri "https://raw.githubusercontent.com/aba3bs-arch/remote3b/main/scripts/install_agent_windows.ps1" `
   -OutFile $installer
 
 powershell -ExecutionPolicy Bypass -File $installer `
@@ -113,7 +124,7 @@ Download and run it:
 ```powershell
 $installer = "$env:TEMP\install_am_connect_simple.ps1"
 Invoke-WebRequest `
-  -Uri "https://raw.githubusercontent.com/aba3bs-arch/remote3b/cursor/remote-access-dashboard-3dae/scripts/install_am_connect_simple.ps1" `
+  -Uri "https://raw.githubusercontent.com/aba3bs-arch/remote3b/main/scripts/install_am_connect_simple.ps1" `
   -OutFile $installer
 
 powershell -ExecutionPolicy Bypass -File $installer `
