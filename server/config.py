@@ -24,7 +24,7 @@ class Config:
     REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv('REFRESH_TOKEN_EXPIRE_DAYS', 7))
     
     # TLS
-    USE_SSL = os.getenv('USE_SSL', 'true').lower() == 'true'
+    USE_SSL = os.getenv('USE_SSL', 'false').lower() == 'true'
     SSL_CERT = os.getenv('SSL_CERT', 'certs/cert.pem')
     SSL_KEY = os.getenv('SSL_KEY', 'certs/key.pem')
     

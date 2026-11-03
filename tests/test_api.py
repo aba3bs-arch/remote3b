@@ -31,6 +31,22 @@ def _auth_headers():
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
+def test_store_url_replaces_loopback_public_url(monkeypatch):
+    monkeypatch.setenv("PUBLIC_URL", "http://127.0.0.1:8000")
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    monkeypatch.setattr(main, "detect_lan_ip", lambda: "10.4.4.8")
+    assert main._public_base_url(None) == "http://10.4.4.8:8000"
+    assert main._ws_base_url(None) == "ws://10.4.4.8:8000/ws"
+
+
+def test_connect_info():
+    info = client.get("/api/connect-info")
+    assert info.status_code == 200
+    body = info.json()
+    assert body["store_url"].startswith("http")
+    assert body["ws_url"].startswith("ws")
+
+
 def test_health():
     response = client.get("/health")
     assert response.status_code == 200

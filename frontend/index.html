@@ -21,19 +21,11 @@
       <aside class="sidebar" aria-label="Navegacion principal">
         <nav>
           <a class="nav-item active" href="#computers" data-view="computers"><span>▣</span>Computadoras</a>
-          <a class="nav-item" href="#files" data-view="files"><span>▤</span>Acceso a archivos</a>
+          <a class="nav-item" href="#files" data-view="files"><span>▤</span>Archivos</a>
           <a class="nav-item" href="#attended" data-view="attended"><span>▥</span>Acceso atendido</a>
           <a class="nav-item" href="#logs" data-view="logs"><span>▧</span>Registros</a>
           <a class="nav-item" href="#account" data-view="account"><span>♙</span>Mi cuenta</a>
-          <a class="nav-item" href="#rdp" data-view="rdp"><span>◉</span>Conector RDP</a>
-          <a class="nav-item" href="#help" id="helpNav" data-view="help"><span>✚</span>HelpDesk</a>
-          <div class="nav-group">
-            <button class="nav-item group-title" type="button"><span>☁</span>Backup <span class="chevron">⌄</span></button>
-            <a class="nav-item nested" href="#computer-backup">Backup de computadoras</a>
-            <a class="nav-item nested" href="#workspace">Google Workspace</a>
-            <a class="nav-item nested" href="#m365">Microsoft 365</a>
-          </div>
-          <a class="nav-item" href="#meeting" data-view="meeting"><span>☏</span>Reuniones</a>
+          <a class="nav-item" href="#help" id="helpNav" data-view="help"><span>✚</span>Ayuda</a>
         </nav>
       </aside>
 
@@ -54,6 +46,7 @@
 
         <section class="safety-note" role="note">
           <p id="dataSource">Inicia sesion para ver las computadoras de tus tiendas.</p>
+          <p id="storeAddress">Las tiendas tienen que estar en la misma red que esta PC, salvo que configures una direccion publica.</p>
           <span>Solo equipos de 3B o con permiso explicito.</span>
         </section>
 
@@ -73,7 +66,6 @@
                   <th>Computer Name</th>
                   <th></th>
                   <th>Accessed</th>
-                  <th aria-label="Backup"></th>
                 </tr>
               </thead>
               <tbody id="computerRows"></tbody>
@@ -87,14 +79,35 @@
           <h1>Acceso atendido</h1>
         </section>
         <article class="info-card">
-          <p>Para las tiendas usa Always-ON: instalas el ejecutable del agente una vez y puedes entrar aunque no haya nadie frente a la PC.</p>
+          <p>Para las tiendas usa Always-ON: instalas el agente una vez y puedes entrar aunque no haya nadie frente a la PC.</p>
           <button id="attendedBackButton" class="primary-action" type="button">Volver a Computadoras</button>
+        </article>
+      </main>
+
+      <main class="content alt-view" id="filesView" hidden>
+        <section class="page-toolbar">
+          <h1>Archivos</h1>
+        </section>
+        <article class="info-card">
+          <p>La transferencia de archivos ocurre dentro de la sesion. Entra con <strong>Connect</strong> a una tienda en linea y usa el gestor de archivos de esa pantalla.</p>
+          <button id="filesBackButton" class="primary-action" type="button">Volver a Computadoras</button>
+        </article>
+      </main>
+
+      <main class="content alt-view" id="logsView" hidden>
+        <section class="page-toolbar">
+          <h1>Registros</h1>
+        </section>
+        <article class="info-card">
+          <p id="logsSummary">Inicia sesion para ver la actividad de tus tiendas.</p>
+          <ul id="logsList"></ul>
+          <button id="logsBackButton" class="primary-action" type="button">Volver a Computadoras</button>
         </article>
       </main>
     </div>
 
     <dialog id="tokenDialog">
-      <form method="dialog" class="dialog-card">
+      <form id="authForm" class="dialog-card">
         <h2>Iniciar sesion</h2>
         <p class="muted">Crea una cuenta gratis. No hay suscripcion.</p>
         <label>
@@ -111,7 +124,7 @@
         </label>
         <div class="auth-actions">
           <button id="registerButton" class="outline-button" type="button">Crear usuario</button>
-          <button id="loginButton" class="primary-action" type="button">Iniciar sesion</button>
+          <button id="loginButton" class="primary-action" type="submit">Iniciar sesion</button>
         </div>
         <p class="hint">La contrasena debe tener 12+ caracteres, mayuscula, minuscula, numero y simbolo.</p>
         <p id="authMessage" class="muted"></p>
@@ -127,16 +140,16 @@
           </label>
         </details>
         <div class="dialog-actions">
-          <button value="cancel" class="outline-button" type="submit">Cancelar</button>
+          <button id="cancelAuthButton" class="outline-button" type="button">Cancelar</button>
           <button id="saveTokenButton" class="primary-action" type="button">Guardar y cargar</button>
         </div>
       </form>
     </dialog>
 
     <dialog id="addDialog">
-      <form method="dialog" class="dialog-card">
+      <form id="addForm" class="dialog-card">
         <h2>Agregar equipo / Descargar</h2>
-        <p class="muted">Nombra la sucursal y descarga el ejecutable. En la PC de la tienda no hace falta instalar Python.</p>
+        <p class="muted">Nombra la sucursal. En la PC de la tienda pega el comando. Tiene que estar en la misma red que esta computadora.</p>
         <label>
           Nombre del equipo
           <input id="newDeviceName" type="text" placeholder="3B7 Del Valle" />
@@ -154,10 +167,10 @@
           <textarea id="installerCommand" rows="5" readonly placeholder="El comando aparecera aqui despues de registrar el equipo."></textarea>
         </label>
         <div class="dialog-actions">
-          <button value="cancel" class="outline-button" type="submit">Cerrar</button>
+          <button id="closeAddButton" class="outline-button" type="button">Cerrar</button>
           <button id="copyInstallerButton" class="outline-button" type="button">Copiar comando</button>
           <a id="downloadAgentButton" class="outline-button" href="/download/agent.exe" hidden>Descargar agente .exe</a>
-          <button id="registerDeviceButton" class="primary-action" type="button">Registrar y generar</button>
+          <button id="registerDeviceButton" class="primary-action" type="submit">Registrar y generar</button>
         </div>
       </form>
     </dialog>
@@ -166,13 +179,13 @@
       <form method="dialog" class="dialog-card">
         <h2>Como abrir AM-CONNECT</h2>
         <ol class="help-steps">
-          <li>En tu PC, abre <strong>AM-CONNECT.exe</strong>. El panel se abre solo en el navegador.</li>
-          <li>Crea usuario e inicia sesion.</li>
+          <li>En tu PC, abre <strong>AM-CONNECT.exe</strong>. El panel se abre en el navegador. Si arrancas con Python, entra a <strong>http://127.0.0.1:8000</strong>.</li>
+          <li>Crea usuario e inicia sesion. Enter inicia sesion.</li>
           <li>Pulsa <strong>Agregar equipo / Descargar</strong> y nombra la sucursal.</li>
-          <li>En la tienda corre el instalador o el <strong>AM-CONNECT-Agent.exe</strong>.</li>
-          <li>Cuando el punto este verde, pulsa <strong>Connect</strong>.</li>
+          <li>En la tienda pega el comando. Esa PC tiene que ver la direccion que muestra el panel.</li>
+          <li>Cuando diga Online, pulsa <strong>Connect</strong>.</li>
         </ol>
-        <p class="muted">Si localhost:8000 no carga, no abras esa direccion a mano: usa el ejecutable y deja la ventana de AM-CONNECT abierta.</p>
+        <p class="muted">Deja la ventana de AM-CONNECT abierta. Si Windows Firewall pregunta, permite la app en redes privadas. No uses https://localhost si el servidor esta en HTTP.</p>
         <div class="dialog-actions">
           <button value="cancel" class="primary-action" type="submit">Entendido</button>
         </div>

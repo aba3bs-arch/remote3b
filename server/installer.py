@@ -45,10 +45,14 @@ $usedExe = $false
 try {{
     Write-Host "Descargando AM-CONNECT-Agent.exe..."
     Invoke-WebRequest -UseBasicParsing -Uri "$ApiUrl/download/agent.exe" -OutFile $ExePath
-    if (Test-Path $ExePath) {{
+    if ((Test-Path $ExePath) -and ((Get-Item $ExePath).Length -gt 1000000)) {{
         $usedExe = $true
+    }} else {{
+        Remove-Item -Force $ExePath -ErrorAction SilentlyContinue
+        Write-Host "El servidor no tiene el .exe del agente. Se instalara con Python." -ForegroundColor Yellow
     }}
 }} catch {{
+    Remove-Item -Force $ExePath -ErrorAction SilentlyContinue
     Write-Host "No hay ejecutable en el servidor; se instalara el agente Python." -ForegroundColor Yellow
 }}
 

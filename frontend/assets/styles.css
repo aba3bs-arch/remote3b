@@ -335,6 +335,15 @@ tbody tr.selected {
   max-width: 640px;
 }
 
+#logsList {
+  margin: 12px 0 18px;
+  padding-left: 18px;
+}
+
+#storeAddress {
+  margin: 4px 0 0;
+}
+
 .outline-button,
 .primary-action,
 a.outline-button {

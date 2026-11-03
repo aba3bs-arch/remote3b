@@ -35,7 +35,6 @@ const usernameInput = document.querySelector("#usernameInput");
 const passwordInput = document.querySelector("#passwordInput");
 const emailInput = document.querySelector("#emailInput");
 const totpInput = document.querySelector("#totpInput");
-const loginButton = document.querySelector("#loginButton");
 const registerButton = document.querySelector("#registerButton");
 const authMessage = document.querySelector("#authMessage");
 const addMessage = document.querySelector("#addMessage");
@@ -138,7 +137,7 @@ function render() {
   rows.innerHTML = "";
 
   if (devices.length === 0) {
-    rows.innerHTML = '<tr><td colspan="4">No hay computadoras. Pulsa Agregar equipo / Descargar.</td></tr>';
+    rows.innerHTML = '<tr><td colspan="3">No hay computadoras. Pulsa Agregar equipo / Descargar.</td></tr>';
   } else {
     devices.forEach((device) => {
       const row = document.createElement("tr");
@@ -158,7 +157,6 @@ function render() {
           </div>
         </td>
         <td>${escapeHtml(relativeAccessed(device.last_accessed || device.last_seen))}</td>
-        <td>${device.is_online ? '<button class="cloud-action" type="button" aria-label="Backup">☁</button>' : ""}</td>
       `;
       row.addEventListener("click", () => {
         state.selectedId = device.device_id;
@@ -326,14 +324,54 @@ function exportDevices() {
 }
 
 function showView(name) {
-  const computersView = document.querySelector("#computersView");
-  const attendedView = document.querySelector("#attendedView");
-  const isAttended = name === "attended";
-  computersView.hidden = isAttended;
-  attendedView.hidden = !isAttended;
+  document.querySelectorAll("main.content").forEach((view) => {
+    const isMatch =
+      (name === "computers" && view.id === "computersView") ||
+      (name === "attended" && view.id === "attendedView") ||
+      (name === "files" && view.id === "filesView") ||
+      (name === "logs" && view.id === "logsView");
+    view.hidden = !isMatch;
+  });
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("active", item.dataset.view === name);
   });
+}
+
+async function loadConnectInfo() {
+  const storeAddress = document.querySelector("#storeAddress");
+  try {
+    const info = await apiRequest("/api/connect-info");
+    storeAddress.textContent = `Las tiendas en esta red se conectan a ${info.store_url}. Deja AM-CONNECT abierto.`;
+  } catch (_error) {
+    storeAddress.textContent = "No se pudo leer la direccion de las tiendas.";
+  }
+}
+
+async function loadLogs() {
+  const summary = document.querySelector("#logsSummary");
+  const list = document.querySelector("#logsList");
+  if (!window.localStorage.getItem(TOKEN_STORAGE_KEY)) {
+    summary.textContent = "Inicia sesion para ver la actividad de tus tiendas.";
+    list.innerHTML = "";
+    return;
+  }
+  try {
+    const payload = await apiRequest("/api/admin/summary");
+    const stats = payload.summary || {};
+    summary.textContent = `${stats.online_devices || 0} en linea de ${stats.total_devices || 0} computadoras.`;
+    const events = stats.recent_events || [];
+    list.innerHTML = events.length
+      ? events
+          .map(
+            (event) =>
+              `<li>${escapeHtml(event.timestamp || "")} · ${escapeHtml(event.action || "evento")}</li>`
+          )
+          .join("")
+      : "<li>Aun no hay registros.</li>";
+  } catch (error) {
+    summary.textContent = `No se pudieron cargar los registros: ${error.message}`;
+    list.innerHTML = "";
+  }
 }
 
 async function detectAgentDownload() {
@@ -366,7 +404,14 @@ document.querySelector("#helpNav").addEventListener("click", (event) => {
 });
 
 document.querySelector("#attendedBackButton").addEventListener("click", () => showView("computers"));
+document.querySelector("#filesBackButton").addEventListener("click", () => showView("computers"));
+document.querySelector("#logsBackButton").addEventListener("click", () => showView("computers"));
 document.querySelector("#exportButton").addEventListener("click", exportDevices);
+document.querySelector("#authForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  loginWithCredentials();
+});
+document.querySelector("#cancelAuthButton").addEventListener("click", () => tokenDialog.close());
 
 document.querySelectorAll("[data-view]").forEach((item) => {
   item.addEventListener("click", (event) => {
@@ -375,15 +420,15 @@ document.querySelectorAll("[data-view]").forEach((item) => {
       return;
     }
     event.preventDefault();
-    if (view === "attended") {
-      showView("attended");
-      return;
-    }
     if (view === "account") {
+      tokenInput.value = window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
       tokenDialog.showModal();
       return;
     }
-    showView("computers");
+    showView(view);
+    if (view === "logs") {
+      loadLogs();
+    }
   });
 });
 
@@ -395,7 +440,6 @@ accountButton.addEventListener("click", () => {
   tokenInput.value = window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
   tokenDialog.showModal();
 });
-loginButton.addEventListener("click", loginWithCredentials);
 registerButton.addEventListener("click", registerUser);
 saveTokenButton.addEventListener("click", () => {
   const token = tokenInput.value.trim();
@@ -407,7 +451,11 @@ saveTokenButton.addEventListener("click", () => {
   tokenDialog.close();
   loadDevicesFromApi();
 });
-document.querySelector("#registerDeviceButton").addEventListener("click", registerStoreComputer);
+document.querySelector("#addForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  registerStoreComputer();
+});
+document.querySelector("#closeAddButton").addEventListener("click", () => addDialog.close());
 document.querySelector("#copyInstallerButton").addEventListener("click", async () => {
   if (!installerCommand.value) {
     addMessage.textContent = "Primero registra la computadora.";
@@ -418,6 +466,7 @@ document.querySelector("#copyInstallerButton").addEventListener("click", async (
 });
 
 detectAgentDownload();
+loadConnectInfo();
 loadDevicesFromApi();
 window.setInterval(() => {
   if (state.usingApi) {

@@ -20,21 +20,27 @@ def runtime_root() -> Path:
 
 def configure_environment() -> tuple[str, int, str]:
     port = int(os.getenv("PORT", "8000"))
-    host = os.getenv("HOST", "127.0.0.1")
-    if not _port_free(host, port):
-        port = _find_free_port(host, port)
-    public_url = f"http://127.0.0.1:{port}"
-    os.environ.setdefault("USE_SSL", "false")
+    probe = "127.0.0.1"
+    if not _port_free(probe, port):
+        port = _find_free_port(probe, port)
+    panel_url = f"http://127.0.0.1:{port}"
     os.environ["USE_SSL"] = "false"
-    os.environ["HOST"] = host
+    os.environ["HOST"] = "0.0.0.0"
     os.environ["PORT"] = str(port)
-    os.environ["PUBLIC_URL"] = public_url
+    public = os.environ.get("PUBLIC_URL", "")
+    if not public or _loopback(public):
+        os.environ.pop("PUBLIC_URL", None)
     os.environ.setdefault(
         "ALLOWED_ORIGINS",
-        f"{public_url},http://localhost:{port}",
+        f"{panel_url},http://localhost:{port}",
     )
     os.environ.setdefault("DEBUG", "false")
-    return host, port, public_url
+    return probe, port, panel_url
+
+
+def _loopback(url: str) -> bool:
+    lowered = url.lower()
+    return "://127.0.0.1" in lowered or "://localhost" in lowered or "://0.0.0.0" in lowered
 
 
 def _port_free(host: str, port: int) -> bool:
@@ -73,18 +79,23 @@ def start_server(root: Path) -> None:
     )
 
 
-def show_window(public_url: str) -> None:
+def show_window(public_url: str, store_url: str) -> None:
     import tkinter as tk
 
     window = tk.Tk()
     window.title("AM-CONNECT")
-    window.geometry("460x210")
+    window.geometry("520x250")
     window.resizable(False, False)
     tk.Label(window, text="AM-CONNECT esta abierto", font=("Segoe UI", 16, "bold")).pack(pady=(18, 8))
     tk.Label(
         window,
-        text=f"Panel: {public_url}\nDeja esta ventana abierta mientras usas las tiendas.",
+        text=(
+            f"Panel: {public_url}\n"
+            f"Las tiendas en esta red usan: {store_url}\n"
+            "Deja esta ventana abierta. Si Windows pregunta, permite la app en redes privadas."
+        ),
         justify="center",
+        wraplength=480,
     ).pack(pady=6)
     tk.Button(
         window,
@@ -97,6 +108,16 @@ def show_window(public_url: str) -> None:
     window.mainloop()
 
 
+def _store_url(root: Path, port: int) -> str:
+    sys.path.insert(0, str(root / "server"))
+    from paths import detect_lan_ip
+
+    lan_ip = detect_lan_ip()
+    if lan_ip:
+        return f"http://{lan_ip}:{port}"
+    return f"http://127.0.0.1:{port}"
+
+
 def main() -> None:
     root = runtime_root()
     host, port, public_url = configure_environment()
@@ -104,7 +125,7 @@ def main() -> None:
     thread.start()
     if wait_for_server(host, port):
         webbrowser.open(public_url)
-        show_window(public_url)
+        show_window(public_url, _store_url(root, port))
         return
 
     import tkinter as tk

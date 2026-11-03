@@ -538,7 +538,7 @@ async def main():
     Main entry point
     """
     # Get configuration from environment
-    server_url = os.getenv('SERVER_URL', 'wss://localhost:8000/ws')
+    server_url = os.getenv('SERVER_URL', 'ws://127.0.0.1:8000/ws')
     device_id = os.getenv('DEVICE_ID', 'device_001')
     device_name = os.getenv('DEVICE_NAME', platform.node())
     device_token = os.getenv('DEVICE_TOKEN', '')
