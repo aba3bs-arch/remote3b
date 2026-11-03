@@ -31,6 +31,22 @@ def _auth_headers():
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
+def test_store_url_replaces_loopback_public_url(monkeypatch):
+    monkeypatch.setenv("PUBLIC_URL", "http://127.0.0.1:8000")
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    monkeypatch.setattr(main, "detect_lan_ip", lambda: "10.4.4.8")
+    assert main._public_base_url(None) == "http://10.4.4.8:8000"
+    assert main._ws_base_url(None) == "ws://10.4.4.8:8000/ws"
+
+
+def test_connect_info():
+    info = client.get("/api/connect-info")
+    assert info.status_code == 200
+    body = info.json()
+    assert body["store_url"].startswith("http")
+    assert body["ws_url"].startswith("ws")
+
+
 def test_health():
     response = client.get("/health")
     assert response.status_code == 200
@@ -42,6 +58,12 @@ def test_dashboard_and_session_pages():
     assert home.status_code == 200
     assert "AM-CONNECT" in home.text
     assert "Always-ON" in home.text
+    assert "Connect" in home.text
+    assert "Computadoras" in home.text
+
+    downloads = client.get("/api/downloads")
+    assert downloads.status_code == 200
+    assert "agent_exe" in downloads.json()
 
     session = client.get("/session")
     assert session.status_code == 200
@@ -74,6 +96,7 @@ def test_register_store_computer_and_installer():
     assert script.status_code == 200
     assert "AM-CONNECT Always-ON" in script.text
     assert device_id in script.text
+    assert "AM-CONNECT-Agent.exe" in script.text
 
     agent = client.get("/install/agent.py")
     assert agent.status_code == 200

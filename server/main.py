@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 from connection_manager import ConnectionManager
 from installer import build_windows_installer
+from paths import agent_exe_candidates, detect_lan_ip, is_loopback_url, runtime_root, user_data_dir
 from security import SecurityManager
 from store import AppStore
 
@@ -47,7 +48,10 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(','),
+    allow_origins=os.getenv(
+        'ALLOWED_ORIGINS',
+        'http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000'
+    ).split(','),
     allow_credentials=True,
     allow_methods=["*"],
     expose_headers=["*"],
@@ -55,7 +59,7 @@ app.add_middleware(
 )
 
 # Initialize managers
-DATA_DIR = Path(os.getenv("AM_CONNECT_DATA_DIR", str(Path(__file__).resolve().parent.parent / "data")))
+DATA_DIR = user_data_dir()
 app_store = AppStore(DATA_DIR / "am_connect.json")
 connection_manager = ConnectionManager()
 security_manager = SecurityManager(store=app_store)
@@ -71,7 +75,7 @@ for saved_id, saved_device in app_store.devices().items():
 latest_screenshots: Dict[str, dict] = {}
 file_transfers: Dict[str, dict] = {}
 audit_events = []
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = runtime_root()
 DASHBOARD_DIR = BASE_DIR / "frontend"
 ASSETS_DIR = DASHBOARD_DIR / "assets"
 
@@ -142,13 +146,41 @@ def _persist_devices() -> None:
     app_store.save()
 
 
+def _url_port(url: str, default: str = "8000") -> str:
+    parsed_port = urlparse_port(url)
+    return parsed_port or os.getenv("PORT", default)
+
+
+def urlparse_port(url: str) -> str:
+    from urllib.parse import urlparse
+
+    port = urlparse(url).port
+    return str(port) if port else ""
+
+
 def _public_base_url(request: Optional[Request] = None) -> str:
-    configured = os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or ""
+    """Address a store PC should use. Loopback would point the store at itself."""
+    configured = (os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    if configured and not is_loopback_url(configured):
+        return configured
+    if request is not None:
+        incoming = str(request.base_url).rstrip("/")
+        if not is_loopback_url(incoming):
+            return incoming
+    port = _url_port(configured or (str(request.base_url) if request is not None else ""))
+    scheme = "http"
+    if configured.startswith("https://"):
+        scheme = "https"
+    elif request is not None and request.url.scheme == "https":
+        scheme = "https"
+    lan_ip = detect_lan_ip()
+    if lan_ip:
+        return f"{scheme}://{lan_ip}:{port}"
     if configured:
-        return configured.rstrip("/")
+        return configured
     if request is not None:
         return str(request.base_url).rstrip("/")
-    return "http://localhost:8000"
+    return f"http://127.0.0.1:{port}"
 
 
 def _ws_base_url(request: Optional[Request] = None) -> str:
@@ -194,6 +226,23 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "connected_devices": len(connected_devices),
         "version": "1.0.0"
+    }
+
+
+@app.get("/api/connect-info")
+async def connect_info(request: Request):
+    """Tell the panel which address store computers should use."""
+    port = os.getenv("PORT", "8000")
+    store_url = _public_base_url(request)
+    panel_url = f"http://127.0.0.1:{_url_port(store_url, port)}"
+    if request is not None and not is_loopback_url(str(request.base_url)):
+        panel_url = str(request.base_url).rstrip("/")
+    return {
+        "status": "success",
+        "panel_url": panel_url,
+        "store_url": store_url,
+        "ws_url": _ws_base_url(request),
+        "same_network": is_loopback_url(os.getenv("PUBLIC_URL") or "http://127.0.0.1"),
     }
 
 
@@ -672,6 +721,25 @@ async def download_windows_installer(request: Request, code: str = Query(...)):
     return PlainTextResponse(script, media_type="text/plain; charset=utf-8")
 
 
+@app.get("/api/downloads")
+async def download_availability():
+    has_agent = any(path.exists() and path.is_file() for path in agent_exe_candidates())
+    return {"status": "success", "agent_exe": has_agent}
+
+
+@app.get("/download/agent.exe")
+async def download_agent_exe():
+    """Serve the packaged Windows agent when it sits next to this app."""
+    for candidate in agent_exe_candidates():
+        if candidate.exists() and candidate.is_file():
+            return FileResponse(
+                candidate,
+                media_type="application/octet-stream",
+                filename="AM-CONNECT-Agent.exe",
+            )
+    raise HTTPException(status_code=404, detail="Agent executable is not bundled yet")
+
+
 @app.get("/install/agent.py")
 async def download_agent_script():
     """Serve the authorized Windows/Linux agent from this same server."""
@@ -939,10 +1007,11 @@ async def http_exception_handler(request, exc):
 
 
 if __name__ == "__main__":
-    # Get configuration from environment
-    host = os.getenv('HOST', '0.0.0.0')
+    import sys as _sys
+
+    host = os.getenv('HOST', '127.0.0.1' if getattr(_sys, 'frozen', False) else '0.0.0.0')
     port = int(os.getenv('PORT', 8000))
-    use_ssl = os.getenv('USE_SSL', 'true').lower() == 'true'
+    use_ssl = os.getenv('USE_SSL', 'false').lower() == 'true'
     
     ssl_keyfile = None
     ssl_certfile = None
@@ -951,22 +1020,23 @@ if __name__ == "__main__":
         ssl_keyfile = os.getenv('SSL_KEY', 'certs/key.pem')
         ssl_certfile = os.getenv('SSL_CERT', 'certs/cert.pem')
         
-        # Check if certificates exist
         if not Path(ssl_certfile).exists() or not Path(ssl_keyfile).exists():
             logger.warning(f"SSL certificates not found at {ssl_certfile} and {ssl_keyfile}")
             logger.warning("Run 'python generate_certs.py' to generate them")
             use_ssl = False
     
+    scheme = "https" if use_ssl else "http"
     logger.info(f"Starting AM-CONNECT Server on {host}:{port}")
     logger.info(f"SSL/TLS: {'Enabled' if use_ssl else 'Disabled'}")
-    logger.info(f"Dashboard: http://localhost:3000")
+    logger.info(f"Dashboard: {scheme}://127.0.0.1:{port}")
+    logger.info(f"Tiendas en esta red: {_public_base_url()}")
+    if use_ssl:
+        logger.warning("El panel usa HTTPS. Abre la direccion https, o pon USE_SSL=false para http://127.0.0.1:%s", port)
     
-    # Run server
     uvicorn.run(
-        "main:app",
+        app,
         host=host,
         port=port,
-        reload=os.getenv('DEBUG', 'false').lower() == 'true',
         ssl_keyfile=ssl_keyfile if use_ssl else None,
         ssl_certfile=ssl_certfile if use_ssl else None,
         log_level="info"

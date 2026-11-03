@@ -1,14 +1,23 @@
 # AM-CONNECT - Acceso remoto gratis para tiendas 3B
 
-**AM-CONNECT** es tu alternativa gratis a RemotePC para ver y controlar las computadoras de tus sucursales. No hay suscripcion: instalas el servidor una vez y en cada tienda corre un agente Always-ON.
+**AM-CONNECT** es tu alternativa gratis a RemotePC para ver y controlar las computadoras de tus sucursales. No hay suscripcion.
+
+## Como abrir la app
+
+1. En GitHub, abre **Actions → Build Windows executables** y descarga el artefacto `am-connect-windows`.
+2. En tu PC, doble clic en **AM-CONNECT.exe**. Se abre el panel en el navegador. **No cierres esa ventana.**
+3. Si arrancas con Python, abre **http://127.0.0.1:8000** (HTTP, no HTTPS).
+4. Si Windows Firewall pregunta, permite AM-CONNECT en redes privadas.
+
+En cada tienda, pulsa **Agregar equipo / Descargar** y pega el comando. El instalador apunta a la direccion de esta PC en la red, no a `127.0.0.1` de la tienda. Las sucursales tienen que estar en la misma red, o configura `PUBLIC_URL` con una direccion publica. Si el artefacto incluye **AM-CONNECT-Agent.exe**, la tienda tampoco necesita Python.
 
 ## Como usarlo en las tiendas
 
 1. Arranca el servidor y abre el panel en el navegador.
 2. Crea un usuario e inicia sesion.
-3. Pulsa **Agregar computadora** y nombra la sucursal (`3B7 Del Valle`, `3B6 Soli`, etc.).
+3. Pulsa **Agregar equipo / Descargar** y nombra la sucursal (`3B7 Del Valle`, `3B6 Soli`, etc.).
 4. Copia el comando de PowerShell y pegalo en la PC de esa tienda. Eso instala el agente y lo deja iniciar con Windows.
-5. Cuando el icono se ponga verde, haz doble clic para ver la pantalla y usar mouse/teclado.
+5. Cuando el equipo diga Online, pulsa **Connect** para ver la pantalla y usar mouse y teclado.
 
 Solo instala el agente en equipos de 3B o con permiso explicito del dueno.
 
@@ -106,7 +115,7 @@ cp .env.example .env
 source venv/bin/activate
 python server/main.py
 ```
-Server available at `https://localhost:8000`
+Server available at `http://127.0.0.1:8000`
 
 ### Terminal 2: Start Client
 ```bash
@@ -115,7 +124,7 @@ python client/agent.py
 ```
 
 ### Open Dashboard
-Open `https://localhost:8000` or `https://localhost:8000/dashboard` in your browser.
+Open `http://127.0.0.1:8000` in your browser.
 The dashboard includes a RemotePC-style Always-ON computer list, recently accessed
 stores, search, and a one-command Windows installer per store computer.
 Starting a connection opens `/session` with live screen streaming and mouse/keyboard
